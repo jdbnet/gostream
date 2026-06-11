@@ -35,13 +35,38 @@ var ErrSyncNotFound = errors.New("mp3 sync word not found")
 
 // FindNextFrame searches for the next MP3 sync word (0xFFE0) and parses the header.
 func FindNextFrame(reader *bufio.Reader) (MP3FrameHeader, []byte, error) {
-	var header []byte
 	for {
 		b, err := reader.ReadByte()
 		if err != nil {
 			return MP3FrameHeader{}, nil, err
 		}
 		
+		// Check for ID3v2 tag
+		if b == 'I' {
+			b2, err := reader.Peek(2)
+			if err == nil && b2[0] == 'D' && b2[1] == '3' {
+				// We found an ID3 tag!
+				id3Header := make([]byte, 9)
+				if _, err := io.ReadFull(reader, id3Header); err == nil {
+					// Size is stored in the last 4 bytes as synchsafe integers (bit 7 is 0)
+					size := (int(id3Header[5]) << 21) | (int(id3Header[6]) << 14) | (int(id3Header[7]) << 7) | int(id3Header[8])
+					// Discard the ID3 tag payload
+					io.CopyN(io.Discard, reader, int64(size))
+				}
+				continue
+			}
+		}
+
+		// Check for ID3v1 tag
+		if b == 'T' {
+			b2, err := reader.Peek(2)
+			if err == nil && b2[0] == 'A' && b2[1] == 'G' {
+				// ID3v1 tag is 128 bytes total. We read 'T', so 127 left.
+				io.CopyN(io.Discard, reader, 127)
+				continue
+			}
+		}
+
 		if b == 0xFF {
 			b2, err := reader.Peek(1)
 			if err != nil {
@@ -50,7 +75,7 @@ func FindNextFrame(reader *bufio.Reader) (MP3FrameHeader, []byte, error) {
 			
 			// 0xFFE0 or 0xFFF0 depending on bits
 			if (b2[0] & 0xE0) == 0xE0 {
-				header = make([]byte, 4)
+				header := make([]byte, 4)
 				header[0] = b
 				// Read the remaining 3 bytes of the header
 				n, err := io.ReadFull(reader, header[1:])
