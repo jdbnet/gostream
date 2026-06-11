@@ -1,3 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gostream-config-pvc
+  namespace: gostream
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,6 +32,13 @@ spec:
           ports:
             - containerPort: 8080
               name: "gostream"
+          volumeMounts:
+            - name: config-volume
+              mountPath: /home/gostream/.config/gostream
+      volumes:
+        - name: config-volume
+          persistentVolumeClaim:
+            claimName: gostream-config-pvc
 ---
 apiVersion: v1
 kind: Service

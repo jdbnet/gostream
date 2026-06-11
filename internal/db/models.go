@@ -42,13 +42,13 @@ func (db *DB) InsertTrack(t *Track) error {
 }
 
 func (db *DB) GetTracks(offset, limit int) ([]Track, error) {
-	var tracks []Track
+	tracks := []Track{}
 	err := db.Select(&tracks, "SELECT * FROM tracks ORDER BY uploaded_at DESC LIMIT ? OFFSET ?", limit, offset)
 	return tracks, err
 }
 
 func (db *DB) GetAllTracks() ([]Track, error) {
-	var tracks []Track
+	tracks := []Track{}
 	err := db.Select(&tracks, "SELECT * FROM tracks ORDER BY title ASC")
 	return tracks, err
 }
@@ -87,7 +87,7 @@ func (db *DB) InsertJingle(j *Jingle) error {
 }
 
 func (db *DB) GetJingles() ([]Jingle, error) {
-	var jingles []Jingle
+	jingles := []Jingle{}
 	err := db.Select(&jingles, "SELECT * FROM jingles ORDER BY uploaded_at DESC")
 	return jingles, err
 }
@@ -104,7 +104,7 @@ func (db *DB) DeleteJingle(id int) error {
 }
 
 func (db *DB) GetPlaylists() ([]Playlist, error) {
-	var playlists []Playlist
+	playlists := []Playlist{}
 	err := db.Select(&playlists, "SELECT * FROM playlists ORDER BY created_at DESC")
 	return playlists, err
 }
@@ -148,7 +148,7 @@ func (db *DB) GetActivePlaylist() (*Playlist, error) {
 }
 
 func (db *DB) GetPlaylistTracks(playlistID int) ([]Track, error) {
-	var tracks []Track
+	tracks := []Track{}
 	err := db.Select(&tracks, `
 		SELECT t.* FROM tracks t
 		JOIN playlist_tracks pt ON t.id = pt.track_id
@@ -182,7 +182,7 @@ func (db *DB) RecordPlay(trackID int, wasJingle bool) error {
 }
 
 func (db *DB) GetRecentHistory(limit int) ([]PlayHistoryEntry, error) {
-	var entries []PlayHistoryEntry
+	entries := []PlayHistoryEntry{}
 	err := db.Select(&entries, "SELECT * FROM play_history ORDER BY played_at DESC LIMIT ?", limit)
 	if err != nil {
 		return nil, err
