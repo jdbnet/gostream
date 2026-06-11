@@ -45,10 +45,10 @@ func NewEngine(cfg *config.Config, database *db.DB, s3Client *s3.Client) *Engine
 		cfg:        cfg,
 		database:   database,
 		s3Client:   s3Client,
-		skipChan:   make(chan struct{}),
-		reloadChan: make(chan struct{}),
-		stopChan:   make(chan struct{}),
-		updatePlaylistChan: make(chan struct{}),
+		skipChan:   make(chan struct{}, 1),
+		reloadChan: make(chan struct{}, 1),
+		stopChan:   make(chan struct{}, 1),
+		updatePlaylistChan: make(chan struct{}, 1),
 	}
 }
 
@@ -348,7 +348,6 @@ func (e *Engine) run() {
 						nextS3Stream.Close()
 						nextS3Stream = nil
 					}
-					e.skipChan <- struct{}{}
 				case <-e.updatePlaylistChan:
 					e.loadMedia()
 					trackIdx = 0
@@ -357,6 +356,8 @@ func (e *Engine) run() {
 						nextS3Stream.Close()
 						nextS3Stream = nil
 					}
+				case <-e.skipChan:
+					// Clear skip signal if idle
 				default:
 				}
 
@@ -463,6 +464,18 @@ func (e *Engine) run() {
 							}
 							break frameLoop
 						case <-e.skipChan:
+							if currentS3Stream != nil {
+								currentS3Stream.Close()
+								currentS3Stream = nil
+							}
+							if nextS3Stream != nil {
+								nextS3Stream.Close()
+								nextS3Stream = nil
+							}
+							break frameLoop
+						case <-e.reloadChan:
+							e.loadMedia()
+							trackIdx = 0
 							if currentS3Stream != nil {
 								currentS3Stream.Close()
 								currentS3Stream = nil
