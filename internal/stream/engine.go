@@ -116,7 +116,11 @@ func (e *Engine) run() {
 		// connect to Icecast
 		reader, writer := io.Pipe()
 		
-		req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("http://%s:%d%s", e.cfg.Icecast.Host, e.cfg.Icecast.Port, e.cfg.Icecast.Mount), reader)
+		protocol := e.cfg.Icecast.Protocol
+		if protocol == "" {
+			protocol = "http"
+		}
+		req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s://%s:%d%s", protocol, e.cfg.Icecast.Host, e.cfg.Icecast.Port, e.cfg.Icecast.Mount), reader)
 		if err != nil {
 			log.Printf("Stream error: failed to create request: %v", err)
 			time.Sleep(time.Duration(e.cfg.Stream.ReconnectDelaySeconds) * time.Second)
@@ -152,7 +156,10 @@ func (e *Engine) run() {
 				errChan <- fmt.Errorf("icecast returned %d: %s", resp.StatusCode, string(b))
 				return
 			}
-			errChan <- nil // connection closed cleanly? (unlikely for PUT)
+			
+			// Block here reading until the server drops the connection
+			_, err = io.Copy(io.Discard, resp.Body)
+			errChan <- err
 		}()
 		
 		e.loadMedia()

@@ -121,6 +121,13 @@ onMounted(fetchConfig)
         <h2 class="text-xl font-bold mb-6 text-white border-b border-border pb-4">Icecast Source</h2>
         <div class="grid grid-cols-2 gap-6">
           <div class="space-y-2">
+            <label class="text-sm text-textSecondary">Protocol</label>
+            <select v-model="config.icecast.protocol" class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50 appearance-none">
+              <option value="http">HTTP</option>
+              <option value="https">HTTPS</option>
+            </select>
+          </div>
+          <div class="space-y-2">
             <label class="text-sm text-textSecondary">Host</label>
             <input v-model="config.icecast.host" type="text" class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50" />
           </div>

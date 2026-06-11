@@ -31,6 +31,7 @@ type Config struct {
 	} `yaml:"s3" json:"s3"`
 
 	Icecast struct {
+		Protocol   string `yaml:"protocol" json:"protocol"`
 		Host       string `yaml:"host" json:"host"`
 		Port       int    `yaml:"port" json:"port"`
 		Mount      string `yaml:"mount" json:"mount"`
@@ -64,6 +65,7 @@ func DefaultConfig() *Config {
 	cfg.S3.SecretKey = ""
 	cfg.S3.PathStyle = true
 
+	cfg.Icecast.Protocol = "http"
 	cfg.Icecast.Host = "localhost"
 	cfg.Icecast.Port = 8000
 	cfg.Icecast.Mount = "/stream"
