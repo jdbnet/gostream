@@ -59,6 +59,12 @@ func (db *DB) GetTrack(id int) (*Track, error) {
 	return &track, err
 }
 
+func (db *DB) GetTrackByTitleAndArtist(title, artist string) (*Track, error) {
+	var track Track
+	err := db.Get(&track, "SELECT * FROM tracks WHERE title = ? AND artist = ?", title, artist)
+	return &track, err
+}
+
 func (db *DB) DeleteTrack(id int) error {
 	_, err := db.Exec("DELETE FROM tracks WHERE id = ?", id)
 	return err

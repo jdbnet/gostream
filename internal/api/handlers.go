@@ -69,6 +69,19 @@ func (s *Server) handleUploadTrack(c *gin.Context) {
 		title = header.Filename[:len(header.Filename)-len(ext)]
 	}
 
+	// Check for duplicates
+	if existingTrack, err := s.database.GetTrackByTitleAndArtist(title, artist); err == nil && existingTrack != nil {
+		playlistID := c.PostForm("playlist_id")
+		if playlistID != "" {
+			if pid, err := strconv.Atoi(playlistID); err == nil {
+				tracks, _ := s.database.GetPlaylistTracks(pid)
+				s.database.AddTrackToPlaylist(pid, existingTrack.ID, len(tracks))
+			}
+		}
+		c.JSON(http.StatusOK, existingTrack)
+		return
+	}
+
 	// Normalize
 	if err := upload.NormalizeAudio(inPath, outPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "ffmpeg failed: " + err.Error()})
