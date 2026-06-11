@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { Search, Trash2 } from 'lucide-vue-next'
+import { ref, computed, onMounted } from 'vue'
+import { Search, Trash2, Edit2, Save, X } from 'lucide-vue-next'
 import TrackUploader from '../components/TrackUploader.vue'
 
 const tracks = ref<any[]>([])
 const search = ref('')
+
+const editingTrackId = ref<number | null>(null)
+const editForm = ref({ title: '', artist: '' })
 
 const fetchTracks = async () => {
   const res = await fetch('/api/tracks')
@@ -19,16 +22,37 @@ const deleteTrack = async (id: number) => {
   fetchTracks()
 }
 
+const startEdit = (track: any) => {
+  editingTrackId.value = track.id
+  editForm.value = { title: track.title, artist: track.artist || '' }
+}
+
+const cancelEdit = () => {
+  editingTrackId.value = null
+}
+
+const saveTrack = async (id: number) => {
+  const res = await fetch(`/api/tracks/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(editForm.value)
+  })
+  if (res.ok) {
+    editingTrackId.value = null
+    fetchTracks()
+  } else {
+    alert('Failed to update track')
+  }
+}
+
 const filteredTracks = computed(() => {
   if (!search.value) return tracks.value
   const s = search.value.toLowerCase()
   return tracks.value.filter(t => 
     t.title.toLowerCase().includes(s) || 
-    t.artist.toLowerCase().includes(s)
+    (t.artist && t.artist.toLowerCase().includes(s))
   )
 })
-
-import { computed } from 'vue'
 
 onMounted(fetchTracks)
 </script>
@@ -72,14 +96,40 @@ onMounted(fetchTracks)
             </td>
           </tr>
           <tr v-for="track in filteredTracks" :key="track.id" class="hover:bg-white/[0.02] transition-colors group">
-            <td class="px-6 py-4 font-medium text-white">{{ track.title }}</td>
-            <td class="px-6 py-4 text-textSecondary">{{ track.artist || 'Unknown' }}</td>
-            <td class="px-6 py-4 text-textSecondary">{{ track.play_count }}</td>
-            <td class="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
-              <button @click="deleteTrack(track.id)" class="text-red-400 hover:text-red-300 p-2 rounded-lg hover:bg-red-400/10 transition-colors">
-                <Trash2 class="w-4 h-4" />
-              </button>
-            </td>
+            <template v-if="editingTrackId === track.id">
+              <td class="px-6 py-4">
+                <input v-model="editForm.title" type="text" class="w-full bg-surface border border-border rounded px-3 py-1 text-white outline-none focus:border-accent/50" />
+              </td>
+              <td class="px-6 py-4">
+                <input v-model="editForm.artist" type="text" placeholder="Unknown Artist" class="w-full bg-surface border border-border rounded px-3 py-1 text-white outline-none focus:border-accent/50" />
+              </td>
+              <td class="px-6 py-4 text-textSecondary">{{ track.play_count }}</td>
+              <td class="px-6 py-4 text-right">
+                <div class="flex items-center justify-end space-x-2 opacity-100">
+                  <button @click="saveTrack(track.id)" class="text-green-400 hover:text-green-300 p-2 rounded-lg hover:bg-green-400/10 transition-colors" title="Save">
+                    <Save class="w-4 h-4" />
+                  </button>
+                  <button @click="cancelEdit" class="text-textSecondary hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors" title="Cancel">
+                    <X class="w-4 h-4" />
+                  </button>
+                </div>
+              </td>
+            </template>
+            <template v-else>
+              <td class="px-6 py-4 font-medium text-white">{{ track.title }}</td>
+              <td class="px-6 py-4 text-textSecondary">{{ track.artist || 'Unknown' }}</td>
+              <td class="px-6 py-4 text-textSecondary">{{ track.play_count }}</td>
+              <td class="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+                <div class="flex items-center justify-end space-x-2">
+                  <button @click="startEdit(track)" class="text-accent hover:text-accent/80 p-2 rounded-lg hover:bg-accent/10 transition-colors" title="Edit">
+                    <Edit2 class="w-4 h-4" />
+                  </button>
+                  <button @click="deleteTrack(track.id)" class="text-red-400 hover:text-red-300 p-2 rounded-lg hover:bg-red-400/10 transition-colors" title="Delete">
+                    <Trash2 class="w-4 h-4" />
+                  </button>
+                </div>
+              </td>
+            </template>
           </tr>
         </tbody>
       </table>

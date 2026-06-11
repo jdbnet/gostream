@@ -39,9 +39,6 @@ func (s *Server) handleUploadTrack(c *gin.Context) {
 
 	title := c.PostForm("title")
 	artist := c.PostForm("artist")
-	if title == "" {
-		title = header.Filename
-	}
 
 	// Save to temp
 	tmpDir, _ := os.MkdirTemp("", "gostream_upload")
@@ -50,18 +47,26 @@ func (s *Server) handleUploadTrack(c *gin.Context) {
 	inPath := filepath.Join(tmpDir, "input.mp3")
 	outPath := filepath.Join(tmpDir, "output.mp3")
 
-	inFile, err := os.Create(inPath)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	// Copy data to inFile
-	// ... (We need an io.Copy here, wait, instead of importing io, I'll just use io.Copy)
-	// But let's just use gin's SaveUploadedFile
-	inFile.Close()
 	if err := c.SaveUploadedFile(header, inPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	var trackDuration int
+	metaTitle, metaArtist, duration, metaErr := upload.ExtractMetadata(inPath)
+	if metaErr == nil {
+		if title == "" && metaTitle != "" {
+			title = metaTitle
+		}
+		if artist == "" && metaArtist != "" {
+			artist = metaArtist
+		}
+		trackDuration = duration
+	}
+
+	if title == "" {
+		ext := filepath.Ext(header.Filename)
+		title = header.Filename[:len(header.Filename)-len(ext)]
 	}
 
 	// Normalize
@@ -95,7 +100,7 @@ func (s *Server) handleUploadTrack(c *gin.Context) {
 	t := &db.Track{
 		Title:         title,
 		Artist:        artist,
-		DurationSeconds: 0, // Would need ffprobe to get duration, ignoring for now or set to 0
+		DurationSeconds: trackDuration,
 		FileSizeBytes: stat.Size(),
 		S3Key:         s3Key,
 	}

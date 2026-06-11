@@ -139,13 +139,13 @@ func (e *Engine) run() {
 		
 		go func() {
 			e.isReconnecting = false
-			e.isConnected = true
-			log.Printf("Connected to Icecast")
 			resp, err := client.Do(req)
 			if err != nil {
 				errChan <- err
 				return
 			}
+			e.isConnected = true
+			log.Printf("Connected to Icecast")
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusOK {
 				b, _ := io.ReadAll(resp.Body)
@@ -262,18 +262,30 @@ func (e *Engine) run() {
 					// But we also need to start the track. 
 					// Let's read frames.
 					
-					// For gapless, we read frames and write them.
+					trackStartTime := time.Now()
+					var trackBytesWritten int64
+					bytesPerSec := float64(e.cfg.Icecast.Bitrate * 1000 / 8)
+
+					frameLoop:
 					for {
 						select {
+						case <-streamCtx.Done():
+							if currentS3Stream != nil {
+								currentS3Stream.Close()
+								currentS3Stream = nil
+							}
+							break frameLoop
 						case <-e.skipChan:
-							currentS3Stream.Close()
-							currentS3Stream = nil
-							break
+							if currentS3Stream != nil {
+								currentS3Stream.Close()
+								currentS3Stream = nil
+							}
+							break frameLoop
 						default:
 						}
 						
 						if currentS3Stream == nil {
-							break
+							break frameLoop
 						}
 						
 						_, frameData, err := FindNextFrame(s3Reader)
@@ -282,12 +294,12 @@ func (e *Engine) run() {
 								// end of track
 								currentS3Stream.Close()
 								currentS3Stream = nil
-								break
+								break frameLoop
 							}
 							log.Printf("Frame error: %v", err)
 							currentS3Stream.Close()
 							currentS3Stream = nil
-							break
+							break frameLoop
 						}
 						
 						// write frame data
@@ -297,25 +309,45 @@ func (e *Engine) run() {
 							if bytesSinceMeta+toWrite >= icyInterval {
 								// hit metadata boundary
 								chunk := icyInterval - bytesSinceMeta
-								writer.Write(frameData[written : written+chunk])
+								_, err := writer.Write(frameData[written : written+chunk])
+								if err != nil {
+									currentS3Stream.Close()
+									currentS3Stream = nil
+									break frameLoop
+								}
+								trackBytesWritten += int64(chunk)
 								written += chunk
 								
 								// write metadata
-								writer.Write(metaBytes)
+								_, err = writer.Write(metaBytes)
+								if err != nil {
+									currentS3Stream.Close()
+									currentS3Stream = nil
+									break frameLoop
+								}
 								metaBytes = []byte{0} // Empty metadata until track changes
 								bytesSinceMeta = 0
 							} else {
-								writer.Write(frameData[written:])
+								_, err := writer.Write(frameData[written:])
+								if err != nil {
+									currentS3Stream.Close()
+									currentS3Stream = nil
+									break frameLoop
+								}
+								trackBytesWritten += int64(toWrite)
 								bytesSinceMeta += toWrite
 								written = len(frameData)
 							}
 						}
 						
-						// Rate limit reading to slightly faster than realtime using buffer seconds?
-						// Icecast buffers automatically based on HTTP PUT rate. S3 will block when Pipe gets full.
-						// The pipe has no buffer, but HTTP request has OS buffer. 
-						// If we push too fast, Icecast will throttle via TCP backpressure.
-						// So we don't strictly need a manual sleep unless Icecast doesn't throttle.
+						// Rate limiting
+						expectedDuration := time.Duration(float64(trackBytesWritten) / bytesPerSec * float64(time.Second))
+						elapsed := time.Since(trackStartTime)
+						
+						bufferDuration := time.Duration(e.cfg.Stream.BufferSeconds) * time.Second
+						if expectedDuration > elapsed + bufferDuration {
+							time.Sleep(expectedDuration - (elapsed + bufferDuration))
+						}
 					}
 				}
 			}
