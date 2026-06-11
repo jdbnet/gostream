@@ -219,22 +219,86 @@ func (e *Engine) run() {
 		trackIdx := 0
 		streamCtx, cancel := context.WithCancel(context.Background())
 
-		var currentS3Stream io.ReadCloser
-		var s3Reader *bufio.Reader
+		frameBuffer := make(chan []byte, 500)
+		var nextS3Stream io.ReadCloser
 
-		// The main loop for pushing frames
+		// Consumer: Reads from frameBuffer and writes to Icecast
 		go func() {
 			defer conn.Close()
+			
+			trackStartTime := time.Now()
+			var trackBytesWritten int64
+			bytesPerSec := float64(e.cfg.Icecast.Bitrate * 1000 / 8)
+			
 			for {
 				select {
 				case <-streamCtx.Done():
+					return
+				case frameData, ok := <-frameBuffer:
+					if !ok {
+						return // Channel closed
+					}
+					
+					// Special nil frame indicates track transition to reset pacing
+					if frameData == nil {
+						trackStartTime = time.Now()
+						trackBytesWritten = 0
+						continue
+					}
+					
+					written := 0
+					for written < len(frameData) {
+						n, err := conn.Write(frameData[written:])
+						if err != nil {
+							errChan <- err
+							return
+						}
+						trackBytesWritten += int64(n)
+						written += n
+					}
+
+					// Rate limiting
+					expectedDuration := time.Duration(float64(trackBytesWritten) / bytesPerSec * float64(time.Second))
+					elapsed := time.Since(trackStartTime)
+
+					bufferDuration := time.Duration(e.cfg.Stream.BufferSeconds) * time.Second
+					if expectedDuration > elapsed + bufferDuration {
+						time.Sleep(expectedDuration - (elapsed + bufferDuration))
+					}
+				}
+			}
+		}()
+
+		// Producer: Reads from S3 and writes to frameBuffer
+		go func() {
+			defer close(frameBuffer)
+			
+			var currentS3Stream io.ReadCloser
+			var s3Reader *bufio.Reader
+			
+			for {
+				select {
+				case <-streamCtx.Done():
+					if currentS3Stream != nil {
+						currentS3Stream.Close()
+					}
+					if nextS3Stream != nil {
+						nextS3Stream.Close()
+					}
 					return
 				case <-e.stopChan:
 					return
 				case <-e.reloadChan:
 					e.loadMedia()
 					trackIdx = 0
-					currentS3Stream = nil // force next track
+					if currentS3Stream != nil {
+						currentS3Stream.Close()
+						currentS3Stream = nil
+					}
+					if nextS3Stream != nil {
+						nextS3Stream.Close()
+						nextS3Stream = nil
+					}
 					e.skipChan <- struct{}{}
 				default:
 				}
@@ -290,18 +354,50 @@ func (e *Engine) run() {
 						go e.updateIcecastMetadata(artist, title)
 					}
 
-					stream, err := e.s3Client.GetStream(s3Key)
-					if err != nil {
-						log.Printf("Error getting s3 stream: %v", err)
-						time.Sleep(1 * time.Second)
-						continue
+					if nextS3Stream != nil {
+						currentS3Stream = nextS3Stream
+						nextS3Stream = nil
+					} else {
+						stream, err := e.s3Client.GetStream(s3Key)
+						if err != nil {
+							log.Printf("Error getting s3 stream: %v", err)
+							time.Sleep(1 * time.Second)
+							continue
+						}
+						currentS3Stream = stream
 					}
-					currentS3Stream = stream
 					s3Reader = bufio.NewReader(currentS3Stream)
 
-					trackStartTime := time.Now()
-					var trackBytesWritten int64
-					bytesPerSec := float64(e.cfg.Icecast.Bitrate * 1000 / 8)
+					// Inform consumer of track transition
+					frameBuffer <- nil
+
+					// Kick off next prefetch immediately
+					go func(nIdx int, pCount int) {
+						if len(e.activePlaylist) == 0 {
+							return
+						}
+						var nKey string
+						
+						willPlayJingle := false
+						if e.cfg.Stream.JingleInterval > 0 && pCount >= e.cfg.Stream.JingleInterval && len(e.jingles) > 0 {
+							willPlayJingle = true
+						}
+						
+						if willPlayJingle {
+							j := e.jingles[rand.Intn(len(e.jingles))]
+							nKey = j.S3Key
+						} else {
+							if nIdx >= len(e.activePlaylist) {
+								nIdx = 0
+							}
+							nKey = e.activePlaylist[nIdx].S3Key
+						}
+						
+						stream, err := e.s3Client.GetStream(nKey)
+						if err == nil {
+							nextS3Stream = stream
+						}
+					}(trackIdx, e.playCount)
 
 					frameLoop:
 					for {
@@ -316,6 +412,10 @@ func (e *Engine) run() {
 							if currentS3Stream != nil {
 								currentS3Stream.Close()
 								currentS3Stream = nil
+							}
+							if nextS3Stream != nil {
+								nextS3Stream.Close()
+								nextS3Stream = nil
 							}
 							break frameLoop
 						default:
@@ -338,28 +438,7 @@ func (e *Engine) run() {
 							break frameLoop
 						}
 
-						// write frame data
-						written := 0
-						for written < len(frameData) {
-							n, err := conn.Write(frameData[written:])
-							if err != nil {
-								currentS3Stream.Close()
-								currentS3Stream = nil
-								errChan <- err
-								break frameLoop
-							}
-							trackBytesWritten += int64(n)
-							written += n
-						}
-
-						// Rate limiting
-						expectedDuration := time.Duration(float64(trackBytesWritten) / bytesPerSec * float64(time.Second))
-						elapsed := time.Since(trackStartTime)
-
-						bufferDuration := time.Duration(e.cfg.Stream.BufferSeconds) * time.Second
-						if expectedDuration > elapsed + bufferDuration {
-							time.Sleep(expectedDuration - (elapsed + bufferDuration))
-						}
+						frameBuffer <- frameData
 					}
 				}
 			}
