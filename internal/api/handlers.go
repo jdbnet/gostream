@@ -11,6 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gostream/internal/config"
 	"gostream/internal/db"
+	"gostream/internal/s3"
+	"gostream/internal/stream"
 	"gostream/internal/upload"
 )
 
