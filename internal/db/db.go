@@ -54,6 +54,24 @@ type DB struct {
 }
 
 func Connect(cfg *config.Config) (*DB, error) {
+	dsnWithoutDB := fmt.Sprintf("%s:%s@tcp(%s:%d)/?parseTime=true",
+		cfg.Database.User,
+		cfg.Database.Password,
+		cfg.Database.Host,
+		cfg.Database.Port,
+	)
+
+	tempDB, err := sqlx.Connect("mysql", dsnWithoutDB)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to mysql server: %w", err)
+	}
+	
+	_, err = tempDB.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;", cfg.Database.Name))
+	tempDB.Close()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create database: %w", err)
+	}
+
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
 		cfg.Database.User,
 		cfg.Database.Password,

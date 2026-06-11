@@ -311,9 +311,15 @@ func (s *Server) handleGetHistory(c *gin.Context) {
 func (s *Server) handleGetConfig(c *gin.Context) {
 	// redact passwords
 	safeCfg := *s.cfg
-	safeCfg.Database.Password = "********"
-	safeCfg.S3.SecretKey = "********"
-	safeCfg.Icecast.Password = "********"
+	if safeCfg.Database.Password != "" {
+		safeCfg.Database.Password = "********"
+	}
+	if safeCfg.S3.SecretKey != "" {
+		safeCfg.S3.SecretKey = "********"
+	}
+	if safeCfg.Icecast.Password != "" && safeCfg.Icecast.Password != "hackme" {
+		safeCfg.Icecast.Password = "********"
+	}
 	
 	c.JSON(http.StatusOK, safeCfg)
 }
@@ -350,11 +356,17 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 			s.database.Close()
 		}
 		s.database = newDB
+		fmt.Println("Database reconnected successfully")
+	} else {
+		fmt.Printf("Database reconnection failed: %v\n", err)
 	}
 
 	// Attempt to connect/reconnect to S3
 	if newS3, err := s3.NewClient(s.cfg); err == nil {
 		s.s3 = newS3
+		fmt.Println("S3 reconnected successfully")
+	} else {
+		fmt.Printf("S3 reconnection failed: %v\n", err)
 	}
 
 	// Restart Engine with new config
@@ -364,6 +376,7 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 		}
 		s.engine = stream.NewEngine(s.cfg, s.database, s.s3)
 		s.engine.Start()
+		fmt.Println("Stream engine restarted successfully")
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "saved and applied successfully"})
