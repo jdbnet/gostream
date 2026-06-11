@@ -5,11 +5,13 @@ import { UploadCloud, Loader2 } from 'lucide-vue-next'
 const props = defineProps<{
   endpoint: string
   label: string
+  playlists?: any[]
 }>()
 
 const emit = defineEmits(['uploaded'])
 
 const fileInput = ref<HTMLInputElement | null>(null)
+const selectedPlaylist = ref<string>('')
 const isUploading = ref(false)
 const uploadProgress = ref(0)
 const error = ref('')
@@ -39,6 +41,9 @@ const processQueue = async () => {
   
   const formData = new FormData()
   formData.append('file', file)
+  if (selectedPlaylist.value) {
+    formData.append('playlist_id', selectedPlaylist.value)
+  }
   
   try {
     await new Promise<void>((resolve, reject) => {
@@ -107,10 +112,21 @@ const handleFile = (e: Event) => {
     />
     
     <div class="flex flex-col items-center pointer-events-none relative z-10">
-      <div v-if="!isUploading">
+      <div v-if="!isUploading" class="w-full">
         <UploadCloud class="w-12 h-12 text-accent mb-4 mx-auto" />
         <h3 class="text-lg font-medium text-white">{{ label }}</h3>
         <p class="text-textSecondary mt-2 text-sm">Drag and drop multiple files, or click to select</p>
+        
+        <div v-if="playlists && playlists.length > 0" class="mt-6 pointer-events-auto" @click.stop>
+          <label class="block text-sm font-medium text-textSecondary mb-2 text-left">Add to Playlist (Optional)</label>
+          <select 
+            v-model="selectedPlaylist" 
+            class="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-white outline-none focus:border-accent transition-colors appearance-none"
+          >
+            <option value="">None</option>
+            <option v-for="p in playlists" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+        </div>
       </div>
       
       <div v-else class="flex flex-col items-center w-full max-w-sm mx-auto">

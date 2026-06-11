@@ -56,6 +56,7 @@ func NewServer(cfg *config.Config, database *db.DB, s3Client *s3.Client, engine 
 
 		api.GET("/jingles", s.handleGetJingles)
 		api.POST("/jingles", s.handleUploadJingle)
+		api.PUT("/jingles/:id", s.handleUpdateJingle)
 		api.DELETE("/jingles/:id", s.handleDeleteJingle)
 
 		api.GET("/playlists", s.handleGetPlaylists)
@@ -65,6 +66,10 @@ func NewServer(cfg *config.Config, database *db.DB, s3Client *s3.Client, engine 
 		api.GET("/playlists/:id/tracks", s.handleGetPlaylistTracks)
 		api.POST("/playlists/:id/tracks", s.handleAddPlaylistTrack)
 		api.DELETE("/playlists/:id/tracks/:trackId", s.handleRemovePlaylistTrack)
+
+		api.GET("/timetable", s.handleGetTimetable)
+		api.POST("/timetable", s.handleSaveTimetable)
+		api.DELETE("/timetable/:id", s.handleDeleteTimetable)
 
 		api.GET("/history", s.handleGetHistory)
 

@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Trash2 } from 'lucide-vue-next'
+import { Trash2, Edit2, Save, X } from 'lucide-vue-next'
 import TrackUploader from '../components/TrackUploader.vue'
 
 const jingles = ref<any[]>([])
+
+const editingJingleId = ref<number | null>(null)
+const editForm = ref({ name: '' })
 
 const fetchJingles = async () => {
   const res = await fetch('/api/jingles')
@@ -16,6 +19,29 @@ const deleteJingle = async (id: number) => {
   if (!confirm('Are you sure you want to delete this jingle?')) return
   await fetch(`/api/jingles/${id}`, { method: 'DELETE' })
   fetchJingles()
+}
+
+const startEdit = (jingle: any) => {
+  editingJingleId.value = jingle.id
+  editForm.value = { name: jingle.name }
+}
+
+const cancelEdit = () => {
+  editingJingleId.value = null
+}
+
+const saveJingle = async (id: number) => {
+  const res = await fetch(`/api/jingles/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(editForm.value)
+  })
+  if (res.ok) {
+    editingJingleId.value = null
+    fetchJingles()
+  } else {
+    alert('Failed to update jingle')
+  }
 }
 
 onMounted(fetchJingles)
@@ -49,13 +75,36 @@ onMounted(fetchJingles)
             </td>
           </tr>
           <tr v-for="jingle in jingles" :key="jingle.id" class="hover:bg-white/[0.02] transition-colors group">
-            <td class="px-6 py-4 font-medium text-white">{{ jingle.name }}</td>
-            <td class="px-6 py-4 text-textSecondary">{{ new Date(jingle.uploaded_at).toLocaleDateString() }}</td>
-            <td class="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
-              <button @click="deleteJingle(jingle.id)" class="text-red-400 hover:text-red-300 p-2 rounded-lg hover:bg-red-400/10 transition-colors">
-                <Trash2 class="w-4 h-4" />
-              </button>
-            </td>
+            <template v-if="editingJingleId === jingle.id">
+              <td class="px-6 py-4">
+                <input v-model="editForm.name" type="text" class="w-full bg-surface border border-border rounded px-3 py-1 text-white outline-none focus:border-accent/50" />
+              </td>
+              <td class="px-6 py-4 text-textSecondary">{{ new Date(jingle.uploaded_at).toLocaleDateString() }}</td>
+              <td class="px-6 py-4 text-right">
+                <div class="flex items-center justify-end space-x-2 opacity-100">
+                  <button @click="saveJingle(jingle.id)" class="text-green-400 hover:text-green-300 p-2 rounded-lg hover:bg-green-400/10 transition-colors" title="Save">
+                    <Save class="w-4 h-4" />
+                  </button>
+                  <button @click="cancelEdit" class="text-textSecondary hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors" title="Cancel">
+                    <X class="w-4 h-4" />
+                  </button>
+                </div>
+              </td>
+            </template>
+            <template v-else>
+              <td class="px-6 py-4 font-medium text-white">{{ jingle.name }}</td>
+              <td class="px-6 py-4 text-textSecondary">{{ new Date(jingle.uploaded_at).toLocaleDateString() }}</td>
+              <td class="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+                <div class="flex items-center justify-end space-x-2">
+                  <button @click="startEdit(jingle)" class="text-accent hover:text-accent/80 p-2 rounded-lg hover:bg-accent/10 transition-colors" title="Edit">
+                    <Edit2 class="w-4 h-4" />
+                  </button>
+                  <button @click="deleteJingle(jingle.id)" class="text-red-400 hover:text-red-300 p-2 rounded-lg hover:bg-red-400/10 transition-colors">
+                    <Trash2 class="w-4 h-4" />
+                  </button>
+                </div>
+              </td>
+            </template>
           </tr>
         </tbody>
       </table>

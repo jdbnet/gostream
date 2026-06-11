@@ -27,9 +27,11 @@ type Engine struct {
 	skipChan   chan struct{}
 	reloadChan chan struct{}
 	stopChan   chan struct{}
+	updatePlaylistChan chan struct{}
 	
 	// internal state
 	activePlaylist []db.Track
+	currentPlaylistID int
 	jingles        []db.Jingle
 	playCount      int
 	currentTrack   *db.Track // For status API
@@ -46,11 +48,26 @@ func NewEngine(cfg *config.Config, database *db.DB, s3Client *s3.Client) *Engine
 		skipChan:   make(chan struct{}),
 		reloadChan: make(chan struct{}),
 		stopChan:   make(chan struct{}),
+		updatePlaylistChan: make(chan struct{}),
 	}
 }
 
 func (e *Engine) Start() {
 	go e.run()
+	go e.timetableWorker()
+}
+
+func (e *Engine) timetableWorker() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-e.stopChan:
+			return
+		case <-ticker.C:
+			e.CheckTimetable()
+		}
+	}
 }
 
 func (e *Engine) Stop() {
@@ -90,11 +107,40 @@ func (e *Engine) Status() StreamStatus {
 	}
 }
 
-func (e *Engine) loadMedia() {
-	// load playlist
+func (e *Engine) evaluateTimetable() int {
+	now := time.Now()
+	dayOfWeek := int(now.Weekday())
+	currentMinute := now.Hour()*60 + now.Minute()
+	
+	entries, err := e.database.GetTimetable()
+	if err == nil {
+		for _, entry := range entries {
+			if entry.DayOfWeek == dayOfWeek && currentMinute >= entry.StartMinute && currentMinute < entry.EndMinute {
+				return entry.PlaylistID
+			}
+		}
+	}
+	
 	p, err := e.database.GetActivePlaylist()
 	if err == nil && p != nil {
-		tracks, _ := e.database.GetPlaylistTracks(p.ID)
+		return p.ID
+	}
+	return 0
+}
+
+func (e *Engine) CheckTimetable() {
+	select {
+	case e.updatePlaylistChan <- struct{}{}:
+	default:
+	}
+}
+
+func (e *Engine) loadMedia() {
+	targetID := e.evaluateTimetable()
+	e.currentPlaylistID = targetID
+	
+	if targetID > 0 {
+		tracks, _ := e.database.GetPlaylistTracks(targetID)
 		
 		// Shuffle tracks
 		rand.Seed(time.Now().UnixNano())
@@ -302,6 +348,14 @@ func (e *Engine) run() {
 						nextS3Stream = nil
 					}
 					e.skipChan <- struct{}{}
+				case <-e.updatePlaylistChan:
+					e.loadMedia()
+					trackIdx = 0
+					// Invalidate prefetch so next track comes from new playlist
+					if nextS3Stream != nil {
+						nextS3Stream.Close()
+						nextS3Stream = nil
+					}
 				default:
 				}
 

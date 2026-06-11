@@ -47,6 +47,15 @@ CREATE TABLE IF NOT EXISTS play_history (
   played_at DATETIME DEFAULT NOW(),
   was_jingle BOOLEAN DEFAULT FALSE
 );
+
+CREATE TABLE IF NOT EXISTS timetable (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  playlist_id INT,
+  day_of_week INT,
+  start_minute INT,
+  end_minute INT,
+  FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+);
 `
 
 type DB struct {

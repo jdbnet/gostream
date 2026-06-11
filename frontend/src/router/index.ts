@@ -28,6 +28,11 @@ const router = createRouter({
       path: '/settings',
       name: 'Settings',
       component: () => import('../views/Settings.vue')
+    },
+    {
+      path: '/timetable',
+      name: 'Timetable',
+      component: () => import('../views/Timetable.vue')
     }
   ]
 })

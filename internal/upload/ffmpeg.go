@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 )
 
 // ExtractMetadata uses ffprobe to get ID3 tags and duration
@@ -18,11 +19,8 @@ func ExtractMetadata(path string) (title, artist string, durationSeconds int, er
 
 	var result struct {
 		Format struct {
-			Tags struct {
-				Title  string `json:"title"`
-				Artist string `json:"artist"`
-			} `json:"tags"`
-			Duration string `json:"duration"`
+			Tags     map[string]string `json:"tags"`
+			Duration string            `json:"duration"`
 		} `json:"format"`
 	}
 
@@ -30,8 +28,14 @@ func ExtractMetadata(path string) (title, artist string, durationSeconds int, er
 		return "", "", 0, fmt.Errorf("failed to parse ffprobe json: %w", err)
 	}
 
-	title = result.Format.Tags.Title
-	artist = result.Format.Tags.Artist
+	for k, v := range result.Format.Tags {
+		lowerK := strings.ToLower(k)
+		if lowerK == "title" {
+			title = v
+		} else if lowerK == "artist" {
+			artist = v
+		}
+	}
 	fDuration, _ := strconv.ParseFloat(result.Format.Duration, 64)
 	
 	return title, artist, int(fDuration), nil
@@ -40,7 +44,7 @@ func ExtractMetadata(path string) (title, artist string, durationSeconds int, er
 // NormalizeAudio runs ffmpeg to normalize the input MP3 file to 128kbps CBR, 44100Hz, stereo
 // It also strips silence from the beginning and end using the silenceremove filter and areverse
 func NormalizeAudio(inputPath, outputPath string) error {
-	cmd := exec.Command("ffmpeg", "-y", "-i", inputPath, "-af", "silenceremove=start_periods=1:start_threshold=-60dB,areverse,silenceremove=start_periods=1:start_threshold=-60dB,areverse", "-codec:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", "-ac", "2", outputPath)
+	cmd := exec.Command("ffmpeg", "-y", "-i", inputPath, "-af", "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-70dB,areverse,silenceremove=start_periods=1:start_duration=0.1:start_threshold=-70dB,areverse", "-codec:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", "-ac", "2", outputPath)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

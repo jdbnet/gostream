@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
-import { Radio, Music, Mic2, ListMusic, Settings } from 'lucide-vue-next'
+import { Radio, Music, Mic2, ListMusic, Settings, Calendar } from 'lucide-vue-next'
 
 const route = useRoute()
 
 const navItems = [
   { name: 'Now Playing', path: '/', icon: Radio },
+  { name: 'Timetable', path: '/timetable', icon: Calendar },
   { name: 'Tracks', path: '/tracks', icon: Music },
   { name: 'Jingles', path: '/jingles', icon: Mic2 },
   { name: 'Playlists', path: '/playlists', icon: ListMusic },

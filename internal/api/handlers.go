@@ -109,6 +109,15 @@ func (s *Server) handleUploadTrack(c *gin.Context) {
 		return
 	}
 
+	playlistID := c.PostForm("playlist_id")
+	if playlistID != "" {
+		if pid, err := strconv.Atoi(playlistID); err == nil {
+			// Append to the end of the playlist
+			tracks, _ := s.database.GetPlaylistTracks(pid)
+			s.database.AddTrackToPlaylist(pid, t.ID, len(tracks))
+		}
+	}
+
 	c.JSON(http.StatusOK, t)
 }
 
@@ -215,6 +224,24 @@ func (s *Server) handleDeleteJingle(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+func (s *Server) handleUpdateJingle(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	
+	if err := s.database.UpdateJingle(id, req.Name); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
 // Playlists
 func (s *Server) handleGetPlaylists(c *gin.Context) {
 	playlists, err := s.database.GetPlaylists()
@@ -311,6 +338,46 @@ func (s *Server) handleGetHistory(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, history)
+}
+
+// Timetable
+func (s *Server) handleGetTimetable(c *gin.Context) {
+	entries, err := s.database.GetTimetable()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, entries)
+}
+
+func (s *Server) handleSaveTimetable(c *gin.Context) {
+	var entry db.TimetableEntry
+	if err := c.BindJSON(&entry); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := s.database.SaveTimetableEntry(&entry); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	
+	// Refresh engine
+	s.engine.CheckTimetable()
+	
+	c.JSON(http.StatusOK, entry)
+}
+
+func (s *Server) handleDeleteTimetable(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	if err := s.database.DeleteTimetableEntry(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	
+	// Refresh engine
+	s.engine.CheckTimetable()
+	
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func (s *Server) handleGetConfig(c *gin.Context) {

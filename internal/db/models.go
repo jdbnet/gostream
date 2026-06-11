@@ -103,6 +103,11 @@ func (db *DB) DeleteJingle(id int) error {
 	return err
 }
 
+func (db *DB) UpdateJingle(id int, name string) error {
+	_, err := db.Exec("UPDATE jingles SET name = ? WHERE id = ?", name, id)
+	return err
+}
+
 func (db *DB) GetPlaylists() ([]Playlist, error) {
 	playlists := []Playlist{}
 	err := db.Select(&playlists, "SELECT * FROM playlists ORDER BY created_at DESC")
@@ -195,4 +200,36 @@ func (db *DB) GetRecentHistory(limit int) ([]PlayHistoryEntry, error) {
 		}
 	}
 	return entries, nil
+}
+
+type TimetableEntry struct {
+	ID          int `db:"id" json:"id"`
+	PlaylistID  int `db:"playlist_id" json:"playlist_id"`
+	DayOfWeek   int `db:"day_of_week" json:"day_of_week"`
+	StartMinute int `db:"start_minute" json:"start_minute"`
+	EndMinute   int `db:"end_minute" json:"end_minute"`
+}
+
+func (db *DB) GetTimetable() ([]TimetableEntry, error) {
+	entries := []TimetableEntry{}
+	err := db.Select(&entries, "SELECT * FROM timetable ORDER BY day_of_week ASC, start_minute ASC")
+	return entries, err
+}
+
+func (db *DB) SaveTimetableEntry(entry *TimetableEntry) error {
+	if entry.ID > 0 {
+		_, err := db.NamedExec("UPDATE timetable SET playlist_id=:playlist_id, day_of_week=:day_of_week, start_minute=:start_minute, end_minute=:end_minute WHERE id=:id", entry)
+		return err
+	}
+	res, err := db.NamedExec("INSERT INTO timetable (playlist_id, day_of_week, start_minute, end_minute) VALUES (:playlist_id, :day_of_week, :start_minute, :end_minute)", entry)
+	if err == nil {
+		id, _ := res.LastInsertId()
+		entry.ID = int(id)
+	}
+	return err
+}
+
+func (db *DB) DeleteTimetableEntry(id int) error {
+	_, err := db.Exec("DELETE FROM timetable WHERE id = ?", id)
+	return err
 }

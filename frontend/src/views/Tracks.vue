@@ -4,6 +4,7 @@ import { Search, Trash2, Edit2, Save, X } from 'lucide-vue-next'
 import TrackUploader from '../components/TrackUploader.vue'
 
 const tracks = ref<any[]>([])
+const playlists = ref<any[]>([])
 const search = ref('')
 
 const editingTrackId = ref<number | null>(null)
@@ -13,6 +14,13 @@ const fetchTracks = async () => {
   const res = await fetch('/api/tracks')
   if (res.ok) {
     tracks.value = await res.json()
+  }
+}
+
+const fetchPlaylists = async () => {
+  const res = await fetch('/api/playlists')
+  if (res.ok) {
+    playlists.value = await res.json()
   }
 }
 
@@ -54,7 +62,10 @@ const filteredTracks = computed(() => {
   )
 })
 
-onMounted(fetchTracks)
+onMounted(() => {
+  fetchTracks()
+  fetchPlaylists()
+})
 </script>
 
 <template>
@@ -66,6 +77,7 @@ onMounted(fetchTracks)
     <TrackUploader 
       endpoint="/api/tracks" 
       label="Upload Track" 
+      :playlists="playlists"
       @uploaded="fetchTracks"
     />
 
