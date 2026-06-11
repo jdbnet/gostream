@@ -226,8 +226,8 @@ func (e *Engine) run() {
 		go func() {
 			defer conn.Close()
 			
-			trackStartTime := time.Now()
-			var trackBytesWritten int64
+			streamStartTime := time.Now()
+			var streamBytesWritten int64
 			bytesPerSec := float64(e.cfg.Icecast.Bitrate * 1000 / 8)
 			
 			for {
@@ -239,13 +239,6 @@ func (e *Engine) run() {
 						return // Channel closed
 					}
 					
-					// Special nil frame indicates track transition to reset pacing
-					if frameData == nil {
-						trackStartTime = time.Now()
-						trackBytesWritten = 0
-						continue
-					}
-					
 					written := 0
 					for written < len(frameData) {
 						n, err := conn.Write(frameData[written:])
@@ -253,13 +246,22 @@ func (e *Engine) run() {
 							errChan <- err
 							return
 						}
-						trackBytesWritten += int64(n)
+						streamBytesWritten += int64(n)
 						written += n
 					}
 
 					// Rate limiting
-					expectedDuration := time.Duration(float64(trackBytesWritten) / bytesPerSec * float64(time.Second))
-					elapsed := time.Since(trackStartTime)
+					expectedDuration := time.Duration(float64(streamBytesWritten) / bytesPerSec * float64(time.Second))
+					elapsed := time.Since(streamStartTime)
+
+					// If we starved and fell significantly behind realtime, reset the clock 
+					// so we don't aggressively burst frames to Icecast to catch up
+					if elapsed > expectedDuration+time.Second {
+						streamStartTime = time.Now()
+						streamBytesWritten = 0
+						expectedDuration = 0
+						elapsed = 0
+					}
 
 					bufferDuration := time.Duration(e.cfg.Stream.BufferSeconds) * time.Second
 					if expectedDuration > elapsed + bufferDuration {
@@ -367,9 +369,6 @@ func (e *Engine) run() {
 						currentS3Stream = stream
 					}
 					s3Reader = bufio.NewReader(currentS3Stream)
-
-					// Inform consumer of track transition
-					frameBuffer <- nil
 
 					// Kick off next prefetch immediately
 					go func(nIdx int, pCount int) {

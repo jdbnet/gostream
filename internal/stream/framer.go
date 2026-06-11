@@ -71,6 +71,12 @@ func FindNextFrame(reader *bufio.Reader) (MP3FrameHeader, []byte, error) {
 					if err != nil && err != io.EOF {
 						return MP3FrameHeader{}, nil, err
 					}
+
+					// Skip Xing/Info tags which confuse browser decoders in continuous streams
+					if isXingHeader(frameData) {
+						continue
+					}
+
 					// Even if it hit EOF we might have a partial frame, but usually we just return what we have
 					return parsed, frameData, nil
 				}
@@ -164,4 +170,18 @@ func parseHeader(h []byte) (MP3FrameHeader, bool) {
 		Padding:     paddingBit == 1,
 		FrameLength: frameLength,
 	}, true
+}
+
+func isXingHeader(frameData []byte) bool {
+	limit := 40
+	if len(frameData) < limit {
+		limit = len(frameData)
+	}
+	for i := 4; i <= limit-4; i++ {
+		if (frameData[i] == 'X' && frameData[i+1] == 'i' && frameData[i+2] == 'n' && frameData[i+3] == 'g') ||
+			(frameData[i] == 'I' && frameData[i+1] == 'n' && frameData[i+2] == 'f' && frameData[i+3] == 'o') {
+			return true
+		}
+	}
+	return false
 }
