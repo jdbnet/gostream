@@ -19,8 +19,8 @@ const isActive = (path: string) => route.path === path
 <template>
   <aside class="w-64 bg-surface border-r border-border flex flex-col h-full shrink-0">
     <div class="h-16 flex items-center px-6 border-b border-border">
-      <div class="w-8 h-8 rounded bg-accent flex items-center justify-center mr-3 shadow-[0_0_15px_rgba(0,188,212,0.4)]">
-        <Radio class="w-5 h-5 text-white" />
+      <div class="w-8 h-8 flex items-center justify-center mr-3">
+        <img src="/gostream.png" alt="GoStream" class="w-8 h-8" />
       </div>
       <h1 class="text-xl font-bold tracking-wide">GoStream</h1>
     </div>
