@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gostream
+  namespace: gostream
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gostream
+  template:
+    metadata:
+      labels:
+        app: gostream
+    spec:
+      containers:
+        - name: gostream
+          image: cr.jdbnet.co.uk/jdbnet/gostream:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: "gostream"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gostream-ingress-service
+  namespace: gostream
+spec:
+  selector:
+    app: gostream
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gostream-ingress
+  namespace: gostream
+spec:
+  rules:
+  - host: gostream.jdb143.uk
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: gostream-ingress-service
+            port:
+              number: 80
