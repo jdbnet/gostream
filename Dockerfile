@@ -27,7 +27,7 @@ WORKDIR /app
 COPY --from=go-builder /app/gostream .
 
 # Create a non-root user (optional but good practice)
-RUN useradd -m -U gostream
+RUN useradd -m -U gostream && mkdir -p /home/gostream/.config/gostream && chown -R gostream:gostream /home/gostream
 USER gostream
 ENV HOME=/home/gostream
 

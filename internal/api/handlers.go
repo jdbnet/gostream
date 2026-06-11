@@ -339,5 +339,16 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 		return
 	}
 	
+	// Update in memory
+	*s.cfg = req
+
+	// Attempt to connect/reconnect to DB to create tables immediately
+	if newDB, err := db.Connect(s.cfg); err == nil {
+		if s.database != nil {
+			s.database.Close()
+		}
+		s.database = newDB
+	}
+
 	c.JSON(http.StatusOK, gin.H{"status": "saved, restart required for some changes"})
 }
