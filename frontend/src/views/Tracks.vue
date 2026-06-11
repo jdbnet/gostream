@@ -6,14 +6,46 @@ import TrackUploader from '../components/TrackUploader.vue'
 const tracks = ref<any[]>([])
 const playlists = ref<any[]>([])
 const search = ref('')
+const totalTracks = ref(0)
+const currentPage = ref(1)
+const limit = 50
+let searchTimeout: any = null
 
 const editingTrackId = ref<number | null>(null)
 const editForm = ref({ title: '', artist: '' })
 
 const fetchTracks = async () => {
-  const res = await fetch('/api/tracks')
+  const query = new URLSearchParams({
+    page: currentPage.value.toString(),
+    q: search.value
+  })
+  const res = await fetch(`/api/tracks?${query.toString()}`)
   if (res.ok) {
-    tracks.value = await res.json()
+    const data = await res.json()
+    tracks.value = data.tracks || []
+    totalTracks.value = data.total || 0
+  }
+}
+
+const onSearch = () => {
+  if (searchTimeout) clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(() => {
+    currentPage.value = 1
+    fetchTracks()
+  }, 300)
+}
+
+const nextPage = () => {
+  if (currentPage.value * limit < totalTracks.value) {
+    currentPage.value++
+    fetchTracks()
+  }
+}
+
+const prevPage = () => {
+  if (currentPage.value > 1) {
+    currentPage.value--
+    fetchTracks()
   }
 }
 
@@ -53,14 +85,7 @@ const saveTrack = async (id: number) => {
   }
 }
 
-const filteredTracks = computed(() => {
-  if (!search.value) return tracks.value
-  const s = search.value.toLowerCase()
-  return tracks.value.filter(t => 
-    t.title.toLowerCase().includes(s) || 
-    (t.artist && t.artist.toLowerCase().includes(s))
-  )
-})
+
 
 onMounted(() => {
   fetchTracks()
@@ -87,6 +112,7 @@ onMounted(() => {
         <input 
           type="text" 
           v-model="search"
+          @input="onSearch"
           placeholder="Search tracks by title or artist..."
           class="bg-transparent border-none outline-none text-white w-full placeholder-textSecondary/50"
         />
@@ -102,12 +128,12 @@ onMounted(() => {
           </tr>
         </thead>
         <tbody class="divide-y divide-border">
-          <tr v-if="filteredTracks.length === 0">
+          <tr v-if="tracks.length === 0">
             <td colspan="4" class="px-6 py-8 text-center text-textSecondary">
               No tracks found.
             </td>
           </tr>
-          <tr v-for="track in filteredTracks" :key="track.id" class="hover:bg-white/[0.02] transition-colors group">
+          <tr v-for="track in tracks" :key="track.id" class="hover:bg-white/[0.02] transition-colors group">
             <template v-if="editingTrackId === track.id">
               <td class="px-6 py-4">
                 <input v-model="editForm.title" type="text" class="w-full bg-surface border border-border rounded px-3 py-1 text-white outline-none focus:border-accent/50" />
@@ -145,6 +171,29 @@ onMounted(() => {
           </tr>
         </tbody>
       </table>
+      
+      <!-- Pagination -->
+      <div v-if="totalTracks > limit" class="p-4 border-t border-border flex items-center justify-between bg-white/[0.02] text-sm text-textSecondary">
+        <div>
+          Showing {{ (currentPage - 1) * limit + 1 }} to {{ Math.min(currentPage * limit, totalTracks) }} of {{ totalTracks }} tracks
+        </div>
+        <div class="flex items-center space-x-2">
+          <button 
+            @click="prevPage" 
+            :disabled="currentPage === 1"
+            class="px-3 py-1 rounded bg-surface border border-border hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Previous
+          </button>
+          <button 
+            @click="nextPage" 
+            :disabled="currentPage * limit >= totalTracks"
+            class="px-3 py-1 rounded bg-surface border border-border hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Next
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>

@@ -21,12 +21,17 @@ func (s *Server) handleGetTracks(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit := 50
 	offset := (page - 1) * limit
-	tracks, err := s.database.GetTracks(offset, limit)
+	searchQuery := c.Query("q")
+	
+	tracks, total, err := s.database.GetTracks(searchQuery, offset, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, tracks)
+	c.JSON(http.StatusOK, gin.H{
+		"tracks": tracks,
+		"total": total,
+	})
 }
 
 func (s *Server) handleUploadTrack(c *gin.Context) {

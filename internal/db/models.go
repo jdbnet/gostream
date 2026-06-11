@@ -41,10 +41,32 @@ func (db *DB) InsertTrack(t *Track) error {
 	return err
 }
 
-func (db *DB) GetTracks(offset, limit int) ([]Track, error) {
+func (db *DB) GetTracks(searchQuery string, offset, limit int) ([]Track, int, error) {
 	tracks := []Track{}
-	err := db.Select(&tracks, "SELECT * FROM tracks ORDER BY uploaded_at DESC LIMIT ? OFFSET ?", limit, offset)
-	return tracks, err
+	var total int
+	
+	query := "SELECT * FROM tracks"
+	countQuery := "SELECT COUNT(*) FROM tracks"
+	args := []interface{}{}
+	
+	if searchQuery != "" {
+		searchLike := "%" + searchQuery + "%"
+		whereClause := " WHERE title LIKE ? OR artist LIKE ?"
+		query += whereClause
+		countQuery += whereClause
+		args = append(args, searchLike, searchLike)
+	}
+	
+	query += " ORDER BY uploaded_at DESC LIMIT ? OFFSET ?"
+	
+	err := db.Get(&total, countQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	
+	args = append(args, limit, offset)
+	err = db.Select(&tracks, query, args...)
+	return tracks, total, err
 }
 
 func (db *DB) GetAllTracks() ([]Track, error) {
