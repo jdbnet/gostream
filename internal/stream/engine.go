@@ -8,7 +8,10 @@ import (
 	"io"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"gostream/internal/config"
@@ -108,86 +111,120 @@ func (e *Engine) loadMedia() {
 	e.jingles = jingles
 }
 
+func (e *Engine) updateIcecastMetadata(artist, title string) {
+	display := title
+	if artist != "" {
+		display = artist + " - " + title
+	}
+	
+	protocol := e.cfg.Icecast.Protocol
+	if protocol == "" {
+		protocol = "http"
+	}
+	
+	apiURL := fmt.Sprintf("%s://%s:%d/admin/metadata?mount=%s&mode=updinfo&song=%s",
+		protocol,
+		e.cfg.Icecast.Host,
+		e.cfg.Icecast.Port,
+		e.cfg.Icecast.Mount,
+		url.QueryEscape(display),
+	)
+	
+	req, _ := http.NewRequest("GET", apiURL, nil)
+	req.SetBasicAuth("admin", e.cfg.Icecast.AdminPassword)
+	resp, err := http.DefaultClient.Do(req)
+	if err == nil {
+		resp.Body.Close()
+	} else {
+		log.Printf("Failed to update icecast metadata: %v", err)
+	}
+}
+
 func (e *Engine) run() {
 	for {
 		e.isReconnecting = true
 		e.isConnected = false
 		
-		// connect to Icecast
-		reader, writer := io.Pipe()
-		
-		protocol := e.cfg.Icecast.Protocol
-		if protocol == "" {
-			protocol = "http"
-		}
-		req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s://%s:%d%s", protocol, e.cfg.Icecast.Host, e.cfg.Icecast.Port, e.cfg.Icecast.Mount), reader)
+		conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", e.cfg.Icecast.Host, e.cfg.Icecast.Port))
 		if err != nil {
-			log.Printf("Stream error: failed to create request: %v", err)
+			log.Printf("Failed to connect: %v", err)
 			time.Sleep(time.Duration(e.cfg.Stream.ReconnectDelaySeconds) * time.Second)
 			continue
 		}
-		
-		auth := base64.StdEncoding.EncodeToString([]byte("source:" + e.cfg.Icecast.Password))
-		req.Header.Set("Authorization", "Basic "+auth)
-		req.Header.Set("Content-Type", "audio/mpeg")
-		req.Header.Set("ice-name", "GoStream Radio")
-		req.Header.Set("ice-bitrate", fmt.Sprintf("%d", e.cfg.Icecast.Bitrate))
-		req.Header.Set("ice-channels", fmt.Sprintf("%d", e.cfg.Icecast.Channels))
-		req.Header.Set("ice-samplerate", fmt.Sprintf("%d", e.cfg.Icecast.SampleRate))
-		req.Header.Set("Icy-MetaData", "1")
 
-		client := &http.Client{Timeout: 0}
-		
-		// Run stream loop in a separate goroutine so we can restart the connection
+		auth := base64.StdEncoding.EncodeToString([]byte("source:" + e.cfg.Icecast.Password))
+
+		handshake := fmt.Sprintf(
+			"PUT %s HTTP/1.0\r\n"+
+			"Authorization: Basic %s\r\n"+
+			"Content-Type: audio/mpeg\r\n"+
+			"ice-name: GoStream Radio\r\n"+
+			"ice-bitrate: %d\r\n"+
+			"ice-channels: %d\r\n"+
+			"ice-samplerate: %d\r\n"+
+			"\r\n",
+			e.cfg.Icecast.Mount, auth,
+			e.cfg.Icecast.Bitrate,
+			e.cfg.Icecast.Channels,
+			e.cfg.Icecast.SampleRate,
+		)
+
+		_, err = conn.Write([]byte(handshake))
+		if err != nil {
+			log.Printf("Handshake failed: %v", err)
+			conn.Close()
+			time.Sleep(time.Duration(e.cfg.Stream.ReconnectDelaySeconds) * time.Second)
+			continue
+		}
+
+		// Read Icecast's response
+		buf := make([]byte, 1024)
+		n, err := conn.Read(buf)
+		if err != nil {
+			log.Printf("Failed to read response: %v", err)
+			conn.Close()
+			time.Sleep(time.Duration(e.cfg.Stream.ReconnectDelaySeconds) * time.Second)
+			continue
+		}
+		response := string(buf[:n])
+		if !strings.Contains(response, "200 OK") {
+			log.Printf("Icecast rejected connection: %s", response)
+			conn.Close()
+			time.Sleep(time.Duration(e.cfg.Stream.ReconnectDelaySeconds) * time.Second)
+			continue
+		}
+
+		log.Printf("Connected to Icecast")
+		e.isConnected = true
+		e.isReconnecting = false
+
 		errChan := make(chan error, 1)
-		
+
 		go func() {
-			e.isReconnecting = false
-			resp, err := client.Do(req)
+			buf := make([]byte, 1)
+			_, err := conn.Read(buf)
 			if err != nil {
 				errChan <- err
-				return
+			} else {
+				errChan <- fmt.Errorf("icecast closed connection")
 			}
-			e.isConnected = true
-			log.Printf("Connected to Icecast")
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				b, _ := io.ReadAll(resp.Body)
-				errChan <- fmt.Errorf("icecast returned %d: %s", resp.StatusCode, string(b))
-				return
-			}
-			
-			// Block here reading until the server drops the connection
-			_, err = io.Copy(io.Discard, resp.Body)
-			errChan <- err
 		}()
-		
+
 		e.loadMedia()
-		
+
 		if len(e.activePlaylist) == 0 {
 			log.Printf("Warning: No active playlist or tracks found. Idling...")
 		}
-		
-		icyInterval := (e.cfg.Icecast.Bitrate * 1000 / 8) * 5 // Every 5 seconds roughly? Wait, Icecast usually requests a specific interval, but we are a source. The source doesn't inject metadata inline with MP3 frames to Icecast via PUT.
-		// ACTUALLY: Icecast sources using PUT do not inject inline ICY metadata. They use a separate Admin API or the standard metadata update endpoint.
-		// Wait, the prompt says: "Icecast supports inline metadata via the Icy-MetaData: 1 request header and periodic metadata blocks in the stream ... Inject StreamTitle='Artist - Title'; at the start of each new track"
-		// If using `Icy-MetaData: 1` as source, we *do* inject it. The server sets the interval, but Icecast as a *source* using HTTP PUT? 
-		// Actually, standard SHOUTcast source protocol injects. For Icecast PUT, we can use the Icecast Admin metadata API, or if the prompt demands inline, we do inline.
-		// "Inject ICY metadata between frames at the configured interval (every icecast.bitrate * 1000 / 8 * 16 bytes) to update now-playing info"
-		// Let's follow the prompt strictly: interval = icecast.bitrate * 1000 / 8 * 16 bytes.
-		icyInterval = e.cfg.Icecast.Bitrate * 1000 / 8 * 16
-		
-		bytesSinceMeta := 0
+
 		trackIdx := 0
-		
 		streamCtx, cancel := context.WithCancel(context.Background())
-		
+
 		var currentS3Stream io.ReadCloser
 		var s3Reader *bufio.Reader
-		
+
 		// The main loop for pushing frames
 		go func() {
-			defer writer.Close()
+			defer conn.Close()
 			for {
 				select {
 				case <-streamCtx.Done():
@@ -201,26 +238,25 @@ func (e *Engine) run() {
 					e.skipChan <- struct{}{}
 				default:
 				}
-				
+
 				if len(e.activePlaylist) == 0 {
 					time.Sleep(1 * time.Second)
 					continue
 				}
-				
+
 				if currentS3Stream == nil {
-					// Need to pick next track or jingle
 					e.playCount++
 					playJingle := false
 					if e.cfg.Stream.JingleInterval > 0 && e.playCount > e.cfg.Stream.JingleInterval && len(e.jingles) > 0 {
 						playJingle = true
 						e.playCount = 0
 					}
-					
+
 					var s3Key string
 					var title string
 					var artist string
 					var dbTrackID int
-					
+
 					if playJingle {
 						j := e.jingles[rand.Intn(len(e.jingles))]
 						s3Key = j.S3Key
@@ -230,16 +266,16 @@ func (e *Engine) run() {
 						e.currentTrack = nil
 						e.database.RecordPlay(j.ID, true)
 						log.Printf("Playing jingle: %s", title)
+						go e.updateIcecastMetadata("", title)
 					} else {
 						if trackIdx >= len(e.activePlaylist) {
-							// Re-shuffle
 							e.loadMedia()
 							trackIdx = 0
 						}
 						if len(e.activePlaylist) == 0 {
 							continue
 						}
-						
+
 						t := e.activePlaylist[trackIdx]
 						trackIdx++
 						s3Key = t.S3Key
@@ -251,8 +287,9 @@ func (e *Engine) run() {
 						e.database.IncrementPlayCount(dbTrackID)
 						e.database.RecordPlay(dbTrackID, false)
 						log.Printf("Playing track: %s - %s", artist, title)
+						go e.updateIcecastMetadata(artist, title)
 					}
-					
+
 					stream, err := e.s3Client.GetStream(s3Key)
 					if err != nil {
 						log.Printf("Error getting s3 stream: %v", err)
@@ -261,14 +298,7 @@ func (e *Engine) run() {
 					}
 					currentS3Stream = stream
 					s3Reader = bufio.NewReader(currentS3Stream)
-					
-					// Inject metadata right away (but we need to wait for byte boundary? 
-					// Wait, the prompt says "at the start of each new track", but we must inject at exact `icyInterval` bytes.
-					// We'll queue the metadata to be injected at the next boundary.
-					metaBytes := BuildIcyMetadata(artist, title)
-					// But we also need to start the track. 
-					// Let's read frames.
-					
+
 					trackStartTime := time.Now()
 					var trackBytesWritten int64
 					bytesPerSec := float64(e.cfg.Icecast.Bitrate * 1000 / 8)
@@ -290,15 +320,14 @@ func (e *Engine) run() {
 							break frameLoop
 						default:
 						}
-						
+
 						if currentS3Stream == nil {
 							break frameLoop
 						}
-						
+
 						_, frameData, err := FindNextFrame(s3Reader)
 						if err != nil {
 							if err == io.EOF || err == io.ErrUnexpectedEOF {
-								// end of track
 								currentS3Stream.Close()
 								currentS3Stream = nil
 								break frameLoop
@@ -308,49 +337,25 @@ func (e *Engine) run() {
 							currentS3Stream = nil
 							break frameLoop
 						}
-						
+
 						// write frame data
 						written := 0
 						for written < len(frameData) {
-							toWrite := len(frameData) - written
-							if bytesSinceMeta+toWrite >= icyInterval {
-								// hit metadata boundary
-								chunk := icyInterval - bytesSinceMeta
-								_, err := writer.Write(frameData[written : written+chunk])
-								if err != nil {
-									currentS3Stream.Close()
-									currentS3Stream = nil
-									break frameLoop
-								}
-								trackBytesWritten += int64(chunk)
-								written += chunk
-								
-								// write metadata
-								_, err = writer.Write(metaBytes)
-								if err != nil {
-									currentS3Stream.Close()
-									currentS3Stream = nil
-									break frameLoop
-								}
-								metaBytes = []byte{0} // Empty metadata until track changes
-								bytesSinceMeta = 0
-							} else {
-								_, err := writer.Write(frameData[written:])
-								if err != nil {
-									currentS3Stream.Close()
-									currentS3Stream = nil
-									break frameLoop
-								}
-								trackBytesWritten += int64(toWrite)
-								bytesSinceMeta += toWrite
-								written = len(frameData)
+							n, err := conn.Write(frameData[written:])
+							if err != nil {
+								currentS3Stream.Close()
+								currentS3Stream = nil
+								errChan <- err
+								break frameLoop
 							}
+							trackBytesWritten += int64(n)
+							written += n
 						}
-						
+
 						// Rate limiting
 						expectedDuration := time.Duration(float64(trackBytesWritten) / bytesPerSec * float64(time.Second))
 						elapsed := time.Since(trackStartTime)
-						
+
 						bufferDuration := time.Duration(e.cfg.Stream.BufferSeconds) * time.Second
 						if expectedDuration > elapsed + bufferDuration {
 							time.Sleep(expectedDuration - (elapsed + bufferDuration))
@@ -359,7 +364,7 @@ func (e *Engine) run() {
 				}
 			}
 		}()
-		
+
 		// wait for connection to drop
 		select {
 		case err = <-errChan:
@@ -369,7 +374,7 @@ func (e *Engine) run() {
 			cancel()
 			return
 		}
-		
+
 		cancel()
 		e.isConnected = false
 		time.Sleep(time.Duration(e.cfg.Stream.ReconnectDelaySeconds) * time.Second)

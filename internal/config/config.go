@@ -34,9 +34,10 @@ type Config struct {
 		Protocol   string `yaml:"protocol" json:"protocol"`
 		Host       string `yaml:"host" json:"host"`
 		Port       int    `yaml:"port" json:"port"`
-		Mount      string `yaml:"mount" json:"mount"`
-		Password   string `yaml:"password" json:"password"`
-		Bitrate    int    `yaml:"bitrate" json:"bitrate"`
+		Mount         string `yaml:"mount" json:"mount"`
+		Password      string `yaml:"password" json:"password"`
+		AdminPassword string `yaml:"admin_password" json:"admin_password"`
+		Bitrate       int    `yaml:"bitrate" json:"bitrate"`
 		SampleRate int    `yaml:"sample_rate" json:"sample_rate"`
 		Channels   int    `yaml:"channels" json:"channels"`
 	} `yaml:"icecast" json:"icecast"`
@@ -70,6 +71,7 @@ func DefaultConfig() *Config {
 	cfg.Icecast.Port = 8000
 	cfg.Icecast.Mount = "/stream"
 	cfg.Icecast.Password = "hackme"
+	cfg.Icecast.AdminPassword = "admin"
 	cfg.Icecast.Bitrate = 192
 	cfg.Icecast.SampleRate = 44100
 	cfg.Icecast.Channels = 2

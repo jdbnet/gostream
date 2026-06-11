@@ -325,6 +325,9 @@ func (s *Server) handleGetConfig(c *gin.Context) {
 	if safeCfg.Icecast.Password != "" && safeCfg.Icecast.Password != "hackme" {
 		safeCfg.Icecast.Password = "********"
 	}
+	if safeCfg.Icecast.AdminPassword != "" && safeCfg.Icecast.AdminPassword != "admin" {
+		safeCfg.Icecast.AdminPassword = "********"
+	}
 	
 	c.JSON(http.StatusOK, safeCfg)
 }
@@ -345,6 +348,9 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 	}
 	if req.Icecast.Password == "********" {
 		req.Icecast.Password = s.cfg.Icecast.Password
+	}
+	if req.Icecast.AdminPassword == "********" {
+		req.Icecast.AdminPassword = s.cfg.Icecast.AdminPassword
 	}
 	
 	if err := config.Save(&req); err != nil {

@@ -143,6 +143,10 @@ onMounted(fetchConfig)
             <label class="text-sm text-textSecondary">Source Password</label>
             <input v-model="config.icecast.password" type="password" class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50" />
           </div>
+          <div class="space-y-2">
+            <label class="text-sm text-textSecondary">Admin Password</label>
+            <input v-model="config.icecast.admin_password" type="password" class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50" />
+          </div>
           
           <div class="space-y-2">
             <label class="text-sm text-textSecondary">Target Bitrate (kbps) - Note: Must match ffmpeg target</label>
