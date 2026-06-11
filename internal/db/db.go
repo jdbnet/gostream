@@ -100,5 +100,8 @@ func Connect(cfg *config.Config) (*DB, error) {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
+	// Add artwork_s3_key column if it doesn't exist
+	_, _ = db.Exec("ALTER TABLE tracks ADD COLUMN artwork_s3_key VARCHAR(512) DEFAULT ''")
+
 	return &DB{db}, nil
 }

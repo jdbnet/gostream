@@ -74,8 +74,14 @@ onUnmounted(() => {
       <div class="absolute -inset-20 bg-accent/10 blur-3xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none"></div>
       
       <div class="relative flex items-center space-x-8">
-        <div class="w-48 h-48 rounded-xl bg-gradient-to-br from-surface to-border flex items-center justify-center shadow-2xl shrink-0 border border-white/5">
-          <Music class="w-16 h-16 text-textSecondary opacity-50" />
+        <div class="w-48 h-48 rounded-xl bg-gradient-to-br from-surface to-border flex items-center justify-center shadow-2xl shrink-0 border border-white/5 overflow-hidden">
+          <img 
+            v-if="status.current_track?.artwork_s3_key" 
+            :src="'/api/artwork?key=' + status.current_track.artwork_s3_key" 
+            alt="Album Art" 
+            class="w-full h-full object-cover"
+          />
+          <Music v-else class="w-16 h-16 text-textSecondary opacity-50" />
         </div>
         
         <div class="flex-1 min-w-0">

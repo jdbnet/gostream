@@ -116,3 +116,10 @@ func NormalizeAudio(inputPath, outputPath string) error {
 
 	return nil
 }
+
+// ExtractArtwork attempts to extract embedded album artwork from an MP3 file
+func ExtractArtwork(inputPath, outputPath string) error {
+	// -an ignores audio. -vcodec copy extracts the image stream as-is without re-encoding
+	cmd := exec.Command("ffmpeg", "-y", "-i", inputPath, "-an", "-vcodec", "copy", outputPath)
+	return cmd.Run()
+}

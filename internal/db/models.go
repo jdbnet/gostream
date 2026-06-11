@@ -11,6 +11,7 @@ type Track struct {
 	DurationSeconds int       `db:"duration_seconds" json:"duration_seconds"`
 	FileSizeBytes   int64     `db:"file_size_bytes" json:"file_size_bytes"`
 	S3Key           string    `db:"s3_key" json:"s3_key"`
+	ArtworkS3Key    string    `db:"artwork_s3_key" json:"artwork_s3_key"`
 	UploadedAt      time.Time `db:"uploaded_at" json:"uploaded_at"`
 	PlayCount       int       `db:"play_count" json:"play_count"`
 }
@@ -30,7 +31,7 @@ type Playlist struct {
 }
 
 func (db *DB) InsertTrack(t *Track) error {
-	res, err := db.NamedExec(`INSERT INTO tracks (title, artist, duration_seconds, file_size_bytes, s3_key) VALUES (:title, :artist, :duration_seconds, :file_size_bytes, :s3_key)`, t)
+	res, err := db.NamedExec(`INSERT INTO tracks (title, artist, duration_seconds, file_size_bytes, s3_key, artwork_s3_key) VALUES (:title, :artist, :duration_seconds, :file_size_bytes, :s3_key, :artwork_s3_key)`, t)
 	if err != nil {
 		return err
 	}

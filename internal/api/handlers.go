@@ -114,6 +114,21 @@ func (s *Server) handleUploadTrack(c *gin.Context) {
 		return
 	}
 
+	// Extract and upload artwork if present
+	artworkPath := filepath.Join(tmpDir, "artwork.jpg")
+	var artworkS3Key string
+	if err := upload.ExtractArtwork(inPath, artworkPath); err == nil {
+		if stat, err := os.Stat(artworkPath); err == nil && stat.Size() > 0 {
+			if artFile, err := os.Open(artworkPath); err == nil {
+				key := fmt.Sprintf("artworks/%d_%s.jpg", time.Now().UnixNano(), filepath.Base(outPath))
+				if err := s.s3.UploadLocalFile(key, artFile, "image/jpeg"); err == nil {
+					artworkS3Key = key
+				}
+				artFile.Close()
+			}
+		}
+	}
+
 	// insert to db
 	t := &db.Track{
 		Title:         title,
@@ -121,6 +136,7 @@ func (s *Server) handleUploadTrack(c *gin.Context) {
 		DurationSeconds: trackDuration,
 		FileSizeBytes: stat.Size(),
 		S3Key:         s3Key,
+		ArtworkS3Key:  artworkS3Key,
 	}
 	if err := s.database.InsertTrack(t); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -492,4 +508,23 @@ func (s *Server) handleRequestTrack(c *gin.Context) {
 	
 	s.engine.RequestTrack(*track)
 	c.JSON(http.StatusOK, gin.H{"status": "track requested"})
+}
+
+func (s *Server) handleGetArtwork(c *gin.Context) {
+	key := c.Query("key")
+	if key == "" {
+		c.Status(http.StatusBadRequest)
+		return
+	}
+	
+	stream, err := s.s3.GetStream(key)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	defer stream.Close()
+	
+	c.DataFromReader(http.StatusOK, -1, "image/jpeg", stream, map[string]string{
+		"Cache-Control": "public, max-age=31536000",
+	})
 }
