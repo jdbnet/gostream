@@ -450,16 +450,30 @@ e.mu.Unlock()
 						log.Printf("Playing jingle: %s", title)
 						go e.updateIcecastMetadata("", title)
 					} else {
-						if e.trackIdx >= len(e.activePlaylist) {
-							e.loadMedia()
-							e.trackIdx = 0
+						var t db.Track
+						var isRequest bool
+						
+						e.mu.Lock()
+						if len(e.requestedTracks) > 0 {
+							t = e.requestedTracks[0]
+							e.requestedTracks = e.requestedTracks[1:]
+							isRequest = true
 						}
-						if len(e.activePlaylist) == 0 {
-							continue
+						e.mu.Unlock()
+
+						if !isRequest {
+							if e.trackIdx >= len(e.activePlaylist) {
+								e.loadMedia()
+								e.trackIdx = 0
+							}
+							if len(e.activePlaylist) == 0 {
+								continue
+							}
+
+							t = e.activePlaylist[e.trackIdx]
+							e.trackIdx++
 						}
 
-						t := e.activePlaylist[e.trackIdx]
-						e.trackIdx++
 						s3Key = t.S3Key
 						title = t.Title
 						artist = t.Artist
@@ -468,7 +482,12 @@ e.mu.Unlock()
 						e.currentJingle = nil
 						e.database.IncrementPlayCount(dbTrackID)
 						e.database.RecordPlay(dbTrackID, false)
-						log.Printf("Playing track: %s - %s", artist, title)
+						
+						if isRequest {
+							log.Printf("Playing requested track: %s - %s", artist, title)
+						} else {
+							log.Printf("Playing track: %s - %s", artist, title)
+						}
 						go e.updateIcecastMetadata(artist, title)
 					}
 

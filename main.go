@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"gostream/internal/api"
 	"gostream/internal/config"
@@ -19,6 +20,13 @@ var frontendFS embed.FS
 
 func main() {
 	log.Println("Starting GoStream...")
+	
+	// Force application timezone to Europe/London to align with the database
+	if loc, err := time.LoadLocation("Europe/London"); err == nil {
+		time.Local = loc
+	} else {
+		log.Printf("Warning: Failed to load timezone: %v", err)
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
