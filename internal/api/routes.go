@@ -35,6 +35,15 @@ func NewServer(cfg *config.Config, database *db.DB, s3Client *s3.Client, engine 
 	}
 
 	api := r.Group("/api")
+	api.Use(func(c *gin.Context) {
+		if c.Request.URL.Path != "/api/config" && c.Request.URL.Path != "/api/status" {
+			if s.database == nil || s.s3 == nil {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Database or S3 not configured. Please save settings and restart."})
+				return
+			}
+		}
+		c.Next()
+	})
 	{
 		api.GET("/status", s.handleStatus)
 		api.POST("/stream/skip", s.handleSkip)

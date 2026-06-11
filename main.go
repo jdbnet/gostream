@@ -27,18 +27,23 @@ func main() {
 
 	database, err := db.Connect(cfg)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Printf("Warning: Failed to connect to database: %v", err)
+	} else {
+		defer database.Close()
 	}
-	defer database.Close()
 
 	s3Client, err := s3.NewClient(cfg)
 	if err != nil {
-		log.Fatalf("Failed to initialize S3 client: %v", err)
+		log.Printf("Warning: Failed to initialize S3 client: %v", err)
 	}
 
 	engine := stream.NewEngine(cfg, database, s3Client)
-	engine.Start()
-	defer engine.Stop()
+	if database != nil && s3Client != nil {
+		engine.Start()
+		defer engine.Stop()
+	} else {
+		log.Printf("Warning: Stream engine disabled until Database and S3 are configured.")
+	}
 
 	server := api.NewServer(cfg, database, s3Client, engine, frontendFS)
 	
