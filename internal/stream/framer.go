@@ -67,7 +67,7 @@ func FindNextFrame(reader *bufio.Reader) (MP3FrameHeader, []byte, error) {
 					frameData := make([]byte, parsed.FrameLength)
 					copy(frameData, header)
 					
-					n, err := io.ReadFull(reader, frameData[4:])
+					_, err := io.ReadFull(reader, frameData[4:])
 					if err != nil && err != io.EOF {
 						return MP3FrameHeader{}, nil, err
 					}

@@ -2,7 +2,6 @@ package api
 
 import (
 	"fmt"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
