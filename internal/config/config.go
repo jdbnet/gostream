@@ -10,41 +10,41 @@ import (
 
 type Config struct {
 	Server struct {
-		Port int `yaml:"port"`
-	} `yaml:"server"`
+		Port int `yaml:"port" json:"port"`
+	} `yaml:"server" json:"server"`
 
 	Database struct {
-		Host     string `yaml:"host"`
-		Port     int    `yaml:"port"`
-		Name     string `yaml:"name"`
-		User     string `yaml:"user"`
-		Password string `yaml:"password"`
-	} `yaml:"database"`
+		Host     string `yaml:"host" json:"host"`
+		Port     int    `yaml:"port" json:"port"`
+		Name     string `yaml:"name" json:"name"`
+		User     string `yaml:"user" json:"user"`
+		Password string `yaml:"password" json:"password"`
+	} `yaml:"database" json:"database"`
 
 	S3 struct {
-		Endpoint   string `yaml:"endpoint"`
-		Bucket     string `yaml:"bucket"`
-		Region     string `yaml:"region"`
-		AccessKey  string `yaml:"access_key"`
-		SecretKey  string `yaml:"secret_key"`
-		PathStyle  bool   `yaml:"path_style"`
-	} `yaml:"s3"`
+		Endpoint   string `yaml:"endpoint" json:"endpoint"`
+		Bucket     string `yaml:"bucket" json:"bucket"`
+		Region     string `yaml:"region" json:"region"`
+		AccessKey  string `yaml:"access_key" json:"access_key"`
+		SecretKey  string `yaml:"secret_key" json:"secret_key"`
+		PathStyle  bool   `yaml:"path_style" json:"path_style"`
+	} `yaml:"s3" json:"s3"`
 
 	Icecast struct {
-		Host       string `yaml:"host"`
-		Port       int    `yaml:"port"`
-		Mount      string `yaml:"mount"`
-		Password   string `yaml:"password"`
-		Bitrate    int    `yaml:"bitrate"`
-		SampleRate int    `yaml:"sample_rate"`
-		Channels   int    `yaml:"channels"`
-	} `yaml:"icecast"`
+		Host       string `yaml:"host" json:"host"`
+		Port       int    `yaml:"port" json:"port"`
+		Mount      string `yaml:"mount" json:"mount"`
+		Password   string `yaml:"password" json:"password"`
+		Bitrate    int    `yaml:"bitrate" json:"bitrate"`
+		SampleRate int    `yaml:"sample_rate" json:"sample_rate"`
+		Channels   int    `yaml:"channels" json:"channels"`
+	} `yaml:"icecast" json:"icecast"`
 
 	Stream struct {
-		JingleInterval        int `yaml:"jingle_interval"`
-		ReconnectDelaySeconds int `yaml:"reconnect_delay_seconds"`
-		BufferSeconds         int `yaml:"buffer_seconds"`
-	} `yaml:"stream"`
+		JingleInterval        int `yaml:"jingle_interval" json:"jingle_interval"`
+		ReconnectDelaySeconds int `yaml:"reconnect_delay_seconds" json:"reconnect_delay_seconds"`
+		BufferSeconds         int `yaml:"buffer_seconds" json:"buffer_seconds"`
+	} `yaml:"stream" json:"stream"`
 }
 
 func DefaultConfig() *Config {
