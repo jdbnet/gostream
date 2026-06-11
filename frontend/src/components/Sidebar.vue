@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Radio, Music, Mic2, ListMusic, Settings } from 'lucide-vue-next'
 
