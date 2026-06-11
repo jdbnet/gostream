@@ -77,17 +77,30 @@ func NewServer(cfg *config.Config, database *db.DB, s3Client *s3.Client, engine 
 	if err != nil {
 		panic(err)
 	}
-	r.StaticFS("/assets", http.FS(staticFS))
 	
+	fileServer := http.FileServer(http.FS(staticFS))
 	r.NoRoute(func(c *gin.Context) {
-		file, err := staticFS.Open("index.html")
-		if err != nil {
-			c.String(http.StatusNotFound, "Frontend not built properly")
+		path := c.Request.URL.Path
+		if len(path) >= 4 && path[:4] == "/api" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
-		defer file.Close()
-		stat, _ := file.Stat()
-		c.DataFromReader(http.StatusOK, stat.Size(), "text/html", file, nil)
+
+		fPath := path
+		if fPath == "/" {
+			fPath = "index.html"
+		} else if fPath != "" && fPath[0] == '/' {
+			fPath = fPath[1:]
+		}
+
+		_, err := fs.Stat(staticFS, fPath)
+		if err == nil {
+			fileServer.ServeHTTP(c.Writer, c.Request)
+			return
+		}
+
+		c.Request.URL.Path = "/"
+		fileServer.ServeHTTP(c.Writer, c.Request)
 	})
 
 	return s
