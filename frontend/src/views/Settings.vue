@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Save, AlertCircle } from 'lucide-vue-next'
+import { Save, AlertCircle, CheckCircle2 } from 'lucide-vue-next'
 
 const config = ref<any>(null)
 const saved = ref(false)
@@ -179,7 +179,3 @@ onMounted(fetchConfig)
     </div>
   </div>
 </template>
-
-<script lang="ts">
-import { CheckCircle2 } from 'lucide-vue-next'
-</script>
