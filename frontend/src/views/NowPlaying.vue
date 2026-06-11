@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { SkipForward, Activity, Music } from 'lucide-vue-next'
+import { SkipForward, Activity, Music, Play, Square } from 'lucide-vue-next'
 
 const status = ref({
   is_connected: false,
@@ -12,6 +12,24 @@ const status = ref({
 
 const history = ref<any[]>([])
 let pollInterval: any = null
+
+const isPlaying = ref(false)
+let audio: HTMLAudioElement | null = null
+
+const togglePlay = () => {
+  if (isPlaying.value) {
+    if (audio) {
+      audio.pause()
+      audio.src = ''
+      audio = null
+    }
+    isPlaying.value = false
+  } else {
+    audio = new Audio('https://icecast.jdb143.uk/gostream')
+    audio.play().catch(e => console.error("Audio playback failed", e))
+    isPlaying.value = true
+  }
+}
 
 const fetchStatus = async () => {
   try {
@@ -53,6 +71,11 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (pollInterval) clearInterval(pollInterval)
+  if (audio) {
+    audio.pause()
+    audio.src = ''
+    audio = null
+  }
 })
 </script>
 
@@ -108,6 +131,15 @@ onUnmounted(() => {
 
           <div class="mt-8 flex items-center space-x-4">
             <button 
+              @click="togglePlay"
+              class="flex items-center space-x-2 bg-accent hover:bg-accent/90 text-white px-6 py-3 rounded-xl transition-all active:scale-95 shadow-lg shadow-accent/20"
+            >
+              <Square v-if="isPlaying" class="w-5 h-5 fill-current" />
+              <Play v-else class="w-5 h-5 fill-current" />
+              <span class="font-medium">{{ isPlaying ? 'Stop stream' : 'Listen Live' }}</span>
+            </button>
+
+            <button  
               @click="skipTrack"
               class="flex items-center space-x-2 bg-white/5 hover:bg-white/10 text-white px-6 py-3 rounded-xl transition-all active:scale-95 border border-white/10 hover:border-accent/50"
             >
