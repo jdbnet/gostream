@@ -63,7 +63,7 @@ type DB struct {
 }
 
 func Connect(cfg *config.Config) (*DB, error) {
-	dsnWithoutDB := fmt.Sprintf("%s:%s@tcp(%s:%d)/?parseTime=true&multiStatements=true",
+	dsnWithoutDB := fmt.Sprintf("%s:%s@tcp(%s:%d)/?parseTime=true&multiStatements=true&loc=Local",
 		cfg.Database.User,
 		cfg.Database.Password,
 		cfg.Database.Host,
@@ -81,7 +81,7 @@ func Connect(cfg *config.Config) (*DB, error) {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&multiStatements=true",
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&multiStatements=true&loc=Local",
 		cfg.Database.User,
 		cfg.Database.Password,
 		cfg.Database.Host,
