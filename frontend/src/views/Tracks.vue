@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Search, Trash2, Edit2, Save, X } from 'lucide-vue-next'
+import { Search, Trash2, Edit2, Save, X, PlaySquare } from 'lucide-vue-next'
 import TrackUploader from '../components/TrackUploader.vue'
 
 const tracks = ref<any[]>([])
@@ -60,6 +60,15 @@ const deleteTrack = async (id: number) => {
   if (!confirm('Are you sure you want to delete this track?')) return
   await fetch(`/api/tracks/${id}`, { method: 'DELETE' })
   fetchTracks()
+}
+
+const requestTrack = async (id: number) => {
+  const res = await fetch(`/api/stream/request/${id}`, { method: 'POST' })
+  if (res.ok) {
+    alert('Track requested successfully! It will play next.')
+  } else {
+    alert('Failed to request track.')
+  }
 }
 
 const startEdit = (track: any) => {
@@ -159,6 +168,9 @@ onMounted(() => {
               <td class="px-6 py-4 text-textSecondary">{{ track.play_count }}</td>
               <td class="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
                 <div class="flex items-center justify-end space-x-2">
+                  <button @click="requestTrack(track.id)" class="text-blue-400 hover:text-blue-300 p-2 rounded-lg hover:bg-blue-400/10 transition-colors" title="Request Track (Play Next)">
+                    <PlaySquare class="w-4 h-4" />
+                  </button>
                   <button @click="startEdit(track)" class="text-accent hover:text-accent/80 p-2 rounded-lg hover:bg-accent/10 transition-colors" title="Edit">
                     <Edit2 class="w-4 h-4" />
                   </button>

@@ -6,7 +6,8 @@ const status = ref({
   is_connected: false,
   is_reconnecting: false,
   current_track: null as any,
-  current_jingle: null as any
+  current_jingle: null as any,
+  upcoming_tracks: [] as any[]
 })
 
 const history = ref<any[]>([])
@@ -107,6 +108,28 @@ onUnmounted(() => {
               <SkipForward class="w-5 h-5" />
               <span class="font-medium">Skip Track</span>
             </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upcoming Tracks -->
+    <div v-if="status.upcoming_tracks && status.upcoming_tracks.length > 0" class="space-y-4">
+      <h3 class="text-xl font-bold flex items-center">
+        Upcoming Next
+      </h3>
+      <div class="bg-surface rounded-xl border border-border overflow-hidden p-2">
+        <div 
+          v-for="(track, index) in status.upcoming_tracks" 
+          :key="index"
+          class="flex items-center space-x-4 p-3 rounded-lg bg-white/[0.01] hover:bg-white/[0.03] transition-colors mb-2 last:mb-0"
+        >
+          <div class="w-10 h-10 rounded bg-white/5 flex items-center justify-center shrink-0 border border-border">
+            <span class="text-textSecondary text-sm font-medium">{{ index + 1 }}</span>
+          </div>
+          <div class="flex-1 min-w-0">
+            <h4 class="text-white font-medium truncate">{{ track.title }}</h4>
+            <p class="text-textSecondary text-sm truncate">{{ track.artist || 'Unknown Artist' }}</p>
           </div>
         </div>
       </div>

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"gostream/internal/config"
@@ -28,9 +29,13 @@ type Engine struct {
 	reloadChan chan struct{}
 	stopChan   chan struct{}
 	updatePlaylistChan chan struct{}
+	requestChan        chan db.Track
 	
+	mu             sync.RWMutex
 	// internal state
 	activePlaylist []db.Track
+	trackIdx       int
+	requestedTracks []db.Track
 	currentPlaylistID int
 	jingles        []db.Jingle
 	playCount      int
@@ -49,6 +54,7 @@ func NewEngine(cfg *config.Config, database *db.DB, s3Client *s3.Client) *Engine
 		reloadChan: make(chan struct{}, 1),
 		stopChan:   make(chan struct{}, 1),
 		updatePlaylistChan: make(chan struct{}, 1),
+		requestChan:        make(chan db.Track, 50),
 	}
 }
 
@@ -91,19 +97,56 @@ func (e *Engine) Reload() {
 	}
 }
 
+func (e *Engine) RequestTrack(track db.Track) {
+	select {
+	case e.requestChan <- track:
+	default:
+	}
+}
+
 type StreamStatus struct {
 	IsConnected    bool       `json:"is_connected"`
 	IsReconnecting bool       `json:"is_reconnecting"`
 	CurrentTrack   *db.Track  `json:"current_track"`
 	CurrentJingle  *db.Jingle `json:"current_jingle"`
+	UpcomingTracks []db.Track `json:"upcoming_tracks"`
 }
 
 func (e *Engine) Status() StreamStatus {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	
+	upcoming := make([]db.Track, 0, 3)
+	for i := 0; i < len(e.requestedTracks) && len(upcoming) < 3; i++ {
+		upcoming = append(upcoming, e.requestedTracks[i])
+	}
+	
+	if len(e.activePlaylist) > 0 {
+		idx := e.trackIdx
+		for len(upcoming) < 3 {
+			if idx >= len(e.activePlaylist) {
+				idx = 0
+			}
+			upcoming = append(upcoming, e.activePlaylist[idx])
+			idx++
+			if idx == e.trackIdx || (idx == 0 && e.trackIdx == 0 && len(upcoming) >= len(e.activePlaylist)+len(e.requestedTracks)) {
+				if len(e.activePlaylist) == 1 {
+					for len(upcoming) < 3 {
+						upcoming = append(upcoming, e.activePlaylist[0])
+					}
+				} else {
+					break
+				}
+			}
+		}
+	}
+
 	return StreamStatus{
 		IsConnected:    e.isConnected,
 		IsReconnecting: e.isReconnecting,
 		CurrentTrack:   e.currentTrack,
 		CurrentJingle:  e.currentJingle,
+		UpcomingTracks: upcoming,
 	}
 }
 
@@ -138,6 +181,10 @@ func (e *Engine) CheckTimetable() {
 
 func (e *Engine) loadMedia() {
 	targetID := e.evaluateTimetable()
+	
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	
 	e.currentPlaylistID = targetID
 	
 	if targetID > 0 {
@@ -189,8 +236,12 @@ func (e *Engine) updateIcecastMetadata(artist, title string) {
 
 func (e *Engine) run() {
 	for {
-		e.isReconnecting = true
-		e.isConnected = false
+		e.mu.Lock()
+e.isReconnecting = true
+e.mu.Unlock()
+		e.mu.Lock()
+e.isConnected = false
+e.mu.Unlock()
 		
 		conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", e.cfg.Icecast.Host, e.cfg.Icecast.Port))
 		if err != nil {
@@ -242,8 +293,10 @@ func (e *Engine) run() {
 		}
 
 		log.Printf("Connected to Icecast")
+		e.mu.Lock()
 		e.isConnected = true
 		e.isReconnecting = false
+		e.mu.Unlock()
 
 		errChan := make(chan error, 1)
 
@@ -263,8 +316,7 @@ func (e *Engine) run() {
 			log.Printf("Warning: No active playlist or tracks found. Idling...")
 		}
 
-		trackIdx := 0
-		streamCtx, cancel := context.WithCancel(context.Background())
+				streamCtx, cancel := context.WithCancel(context.Background())
 
 		frameBuffer := make(chan []byte, 500)
 		var nextS3Stream io.ReadCloser
@@ -339,7 +391,7 @@ func (e *Engine) run() {
 					return
 				case <-e.reloadChan:
 					e.loadMedia()
-					trackIdx = 0
+					e.trackIdx = 0
 					if currentS3Stream != nil {
 						currentS3Stream.Close()
 						currentS3Stream = nil
@@ -350,7 +402,7 @@ func (e *Engine) run() {
 					}
 				case <-e.updatePlaylistChan:
 					e.loadMedia()
-					trackIdx = 0
+					e.trackIdx = 0
 					// Invalidate prefetch so next track comes from new playlist
 					if nextS3Stream != nil {
 						nextS3Stream.Close()
@@ -358,6 +410,14 @@ func (e *Engine) run() {
 					}
 				case <-e.skipChan:
 					// Clear skip signal if idle
+				case req := <-e.requestChan:
+					e.mu.Lock()
+					e.requestedTracks = append(e.requestedTracks, req)
+					e.mu.Unlock()
+					if nextS3Stream != nil {
+						nextS3Stream.Close()
+						nextS3Stream = nil
+					}
 				default:
 				}
 
@@ -390,16 +450,16 @@ func (e *Engine) run() {
 						log.Printf("Playing jingle: %s", title)
 						go e.updateIcecastMetadata("", title)
 					} else {
-						if trackIdx >= len(e.activePlaylist) {
+						if e.trackIdx >= len(e.activePlaylist) {
 							e.loadMedia()
-							trackIdx = 0
+							e.trackIdx = 0
 						}
 						if len(e.activePlaylist) == 0 {
 							continue
 						}
 
-						t := e.activePlaylist[trackIdx]
-						trackIdx++
+						t := e.activePlaylist[e.trackIdx]
+						e.trackIdx++
 						s3Key = t.S3Key
 						title = t.Title
 						artist = t.Artist
@@ -427,10 +487,12 @@ func (e *Engine) run() {
 					s3Reader = bufio.NewReader(currentS3Stream)
 
 					// Kick off next prefetch immediately
-					go func(nIdx int, pCount int) {
-						if len(e.activePlaylist) == 0 {
-							return
-						}
+					e.mu.RLock()
+					reqTracksCopy := make([]db.Track, len(e.requestedTracks))
+					copy(reqTracksCopy, e.requestedTracks)
+					e.mu.RUnlock()
+
+					go func(nIdx int, pCount int, reqTracks []db.Track) {
 						var nKey string
 						
 						willPlayJingle := false
@@ -441,18 +503,22 @@ func (e *Engine) run() {
 						if willPlayJingle {
 							j := e.jingles[rand.Intn(len(e.jingles))]
 							nKey = j.S3Key
-						} else {
+						} else if len(reqTracks) > 0 {
+							nKey = reqTracks[0].S3Key
+						} else if len(e.activePlaylist) > 0 {
 							if nIdx >= len(e.activePlaylist) {
 								nIdx = 0
 							}
 							nKey = e.activePlaylist[nIdx].S3Key
+						} else {
+							return
 						}
 						
 						stream, err := e.s3Client.GetStream(nKey)
 						if err == nil {
 							nextS3Stream = stream
 						}
-					}(trackIdx, e.playCount)
+					}(e.trackIdx, e.playCount, reqTracksCopy)
 
 					frameLoop:
 					for {
@@ -473,9 +539,17 @@ func (e *Engine) run() {
 								nextS3Stream = nil
 							}
 							break frameLoop
+						case req := <-e.requestChan:
+							e.mu.Lock()
+							e.requestedTracks = append(e.requestedTracks, req)
+							e.mu.Unlock()
+							if nextS3Stream != nil {
+								nextS3Stream.Close()
+								nextS3Stream = nil
+							}
 						case <-e.reloadChan:
 							e.loadMedia()
-							trackIdx = 0
+							e.trackIdx = 0
 							if currentS3Stream != nil {
 								currentS3Stream.Close()
 								currentS3Stream = nil

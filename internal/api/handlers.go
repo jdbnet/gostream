@@ -476,8 +476,20 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 		}
 		s.engine = stream.NewEngine(s.cfg, s.database, s.s3)
 		s.engine.Start()
-		fmt.Println("Stream engine restarted successfully")
+		fmt.Printf("Stream engine restarted successfully\n")
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "saved and applied successfully"})
+}
+
+func (s *Server) handleRequestTrack(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	track, err := s.database.GetTrack(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "track not found"})
+		return
+	}
+	
+	s.engine.RequestTrack(*track)
+	c.JSON(http.StatusOK, gin.H{"status": "track requested"})
 }

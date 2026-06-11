@@ -48,6 +48,7 @@ func NewServer(cfg *config.Config, database *db.DB, s3Client *s3.Client, engine 
 		api.GET("/status", s.handleStatus)
 		api.POST("/stream/skip", s.handleSkip)
 		api.POST("/stream/reload", s.handleReload)
+		api.POST("/stream/request/:id", s.handleRequestTrack)
 
 		api.GET("/tracks", s.handleGetTracks)
 		api.POST("/tracks", s.handleUploadTrack)
