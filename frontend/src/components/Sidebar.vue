@@ -46,10 +46,5 @@ const isActive = (path: string) => route.path === path
       </router-link>
     </nav>
     
-    <div class="p-6 border-t border-border">
-      <div class="text-xs text-textSecondary text-center">
-        GoStream v1.0.0
-      </div>
-    </div>
   </aside>
 </template>
