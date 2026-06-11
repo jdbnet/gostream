@@ -350,5 +350,19 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 		s.database = newDB
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "saved, restart required for some changes"})
+	// Attempt to connect/reconnect to S3
+	if newS3, err := s3.NewClient(s.cfg); err == nil {
+		s.s3 = newS3
+	}
+
+	// Restart Engine with new config
+	if s.database != nil && s.s3 != nil {
+		if s.engine != nil {
+			s.engine.Stop()
+		}
+		s.engine = stream.NewEngine(s.cfg, s.database, s.s3)
+		s.engine.Start()
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "saved and applied successfully"})
 }

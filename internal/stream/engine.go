@@ -322,8 +322,15 @@ func (e *Engine) run() {
 		}()
 		
 		// wait for connection to drop
-		err = <-errChan
-		log.Printf("Icecast connection dropped: %v", err)
+		select {
+		case err = <-errChan:
+			log.Printf("Icecast connection dropped: %v", err)
+		case <-e.stopChan:
+			log.Printf("Engine stopped")
+			cancel()
+			return
+		}
+		
 		cancel()
 		e.isConnected = false
 		time.Sleep(time.Duration(e.cfg.Stream.ReconnectDelaySeconds) * time.Second)
