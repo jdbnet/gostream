@@ -132,8 +132,10 @@ onMounted(fetchData)
         <div class="flex relative bg-white/[0.01]">
           <!-- Time Labels -->
           <div class="w-16 shrink-0 border-r border-border bg-surface relative z-10">
-            <div v-for="hour in hours" :key="hour" class="h-[60px] text-xs text-textSecondary text-right pr-2 -mt-2">
-              {{ hour === 0 ? '12 AM' : hour < 12 ? hour + ' AM' : hour === 12 ? '12 PM' : (hour - 12) + ' PM' }}
+            <div v-for="hour in hours" :key="hour" class="h-[60px] relative">
+              <span class="absolute -top-2 right-2 text-xs text-textSecondary text-right bg-surface px-1">
+                {{ hour === 0 ? '12 AM' : hour < 12 ? hour + ' AM' : hour === 12 ? '12 PM' : (hour - 12) + ' PM' }}
+              </span>
             </div>
           </div>
 
