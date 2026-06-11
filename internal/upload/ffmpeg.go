@@ -1,10 +1,13 @@
 package upload
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -41,10 +44,64 @@ func ExtractMetadata(path string) (title, artist string, durationSeconds int, er
 	return title, artist, int(fDuration), nil
 }
 
+func detectTrailingSilenceStart(inputPath string) float64 {
+	out, err := exec.Command("ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", inputPath).Output()
+	if err != nil {
+		return 0
+	}
+	duration, err := strconv.ParseFloat(string(bytes.TrimSpace(out)), 64)
+	if err != nil {
+		return 0
+	}
+
+	cmd := exec.Command("ffmpeg", "-i", inputPath, "-af", "silencedetect=noise=-70dB:d=0.1", "-f", "null", "-")
+	stderr, _ := cmd.StderrPipe()
+	if err := cmd.Start(); err != nil {
+		return 0
+	}
+
+	scanner := bufio.NewScanner(stderr)
+	reStart := regexp.MustCompile(`silence_start: ([\d.]+)`)
+	reEnd := regexp.MustCompile(`silence_end: ([\d.]+)`)
+
+	var lastStart float64 = -1
+	var lastEnd float64 = -1
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if m := reStart.FindStringSubmatch(line); m != nil {
+			if val, err := strconv.ParseFloat(m[1], 64); err == nil {
+				lastStart = val
+			}
+		} else if m := reEnd.FindStringSubmatch(line); m != nil {
+			if val, err := strconv.ParseFloat(m[1], 64); err == nil {
+				lastEnd = val
+			}
+		}
+	}
+	cmd.Wait()
+
+	if lastEnd > 0 && lastStart >= 0 {
+		if duration-lastEnd < 0.5 {
+			return lastStart
+		}
+	}
+	return 0
+}
+
 // NormalizeAudio runs ffmpeg to normalize the input MP3 file to 128kbps CBR, 44100Hz, stereo
-// It also strips silence from the beginning and end using the silenceremove filter and areverse
+// It also strips silence from the beginning and end of the track.
 func NormalizeAudio(inputPath, outputPath string) error {
-	cmd := exec.Command("ffmpeg", "-y", "-i", inputPath, "-af", "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-70dB,areverse,silenceremove=start_periods=1:start_duration=0.1:start_threshold=-70dB,areverse", "-codec:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", "-ac", "2", outputPath)
+	args := []string{"-y"}
+	
+	trimStart := detectTrailingSilenceStart(inputPath)
+	if trimStart > 0 {
+		args = append(args, "-to", strconv.FormatFloat(trimStart, 'f', 2, 64))
+	}
+	
+	args = append(args, "-i", inputPath, "-af", "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-70dB", "-codec:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", "-ac", "2", outputPath)
+	
+	cmd := exec.Command("ffmpeg", args...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
