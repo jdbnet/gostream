@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  gostream:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - gostream_config:/home/gostream/.config/gostream
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: mariadb:10.11
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: gostream
+      MYSQL_USER: gostream
+      MYSQL_PASSWORD: gostream_pass
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  gostream_config:
+  mariadb_data:
