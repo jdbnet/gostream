@@ -20,18 +20,6 @@ jobs:
           docker build -t cr.jdbnet.co.uk/jdbnet/gostream:latest .
           docker push cr.jdbnet.co.uk/jdbnet/gostream:latest
 
-  deploy:
-    name: Deploy to Kubernetes
-    needs: build-and-push
-    runs-on: k3s-lan-01
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Apply manifests
-        run: |
-          sudo kubectl replace -f deployment.yaml --grace-period=60 --force
-
   sonarqube:
     name: SonarQube
     runs-on: build-htz-01
