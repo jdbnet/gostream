@@ -279,8 +279,12 @@ func (s *Server) handleUpdatePlaylist(c *gin.Context) {
 		return
 	}
 	
-	if req.IsActive != nil && *req.IsActive {
-		s.database.SetActivePlaylist(id)
+	if req.IsActive != nil {
+		if *req.IsActive {
+			s.database.SetActivePlaylist(id)
+		} else {
+			s.database.SetActivePlaylist(0)
+		}
 		s.engine.Reload()
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})

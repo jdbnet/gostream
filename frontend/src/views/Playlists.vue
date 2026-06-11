@@ -34,11 +34,11 @@ const deletePlaylist = async (id: number) => {
   fetchPlaylists()
 }
 
-const setActive = async (id: number) => {
+const setActive = async (id: number, isActive: boolean) => {
   await fetch(`/api/playlists/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ is_active: true })
+    body: JSON.stringify({ is_active: isActive })
   })
   fetchPlaylists()
 }
@@ -76,10 +76,10 @@ onMounted(fetchPlaylists)
             <h3 class="font-bold text-lg text-white">{{ p.name }}</h3>
             <div class="flex items-center space-x-2">
               <button 
-                @click.stop="setActive(p.id)"
+                @click.stop="setActive(p.id, !p.is_active)"
                 class="p-1.5 rounded-md transition-colors"
                 :class="p.is_active ? 'text-accent bg-accent/10' : 'text-textSecondary hover:text-white hover:bg-white/10'"
-                :title="p.is_active ? 'Active Playlist' : 'Set Active'"
+                :title="p.is_active ? 'Active Playlist (Click to disable)' : 'Set Active (Override timetable)'"
               >
                 <CheckCircle2 class="w-5 h-5" />
               </button>
@@ -92,7 +92,7 @@ onMounted(fetchPlaylists)
             </div>
           </div>
           <div class="text-xs text-textSecondary">
-            {{ p.is_active ? 'Currently active for stream' : 'Inactive' }}
+            {{ p.is_active ? 'Currently overriding timetable' : 'Inactive' }}
           </div>
         </div>
       </div>

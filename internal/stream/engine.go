@@ -108,6 +108,11 @@ func (e *Engine) Status() StreamStatus {
 }
 
 func (e *Engine) evaluateTimetable() int {
+	p, err := e.database.GetActivePlaylist()
+	if err == nil && p != nil {
+		return p.ID
+	}
+
 	now := time.Now()
 	dayOfWeek := int(now.Weekday())
 	currentMinute := now.Hour()*60 + now.Minute()
@@ -121,10 +126,6 @@ func (e *Engine) evaluateTimetable() int {
 		}
 	}
 	
-	p, err := e.database.GetActivePlaylist()
-	if err == nil && p != nil {
-		return p.ID
-	}
 	return 0
 }
 
