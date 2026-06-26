@@ -34,7 +34,6 @@ type Engine struct {
 	mu             sync.RWMutex
 	// internal state
 	activePlaylist []db.Track
-	trackIdx       int
 	requestedTracks []db.Track
 	currentPlaylistID int
 	jingles        []db.Jingle
@@ -121,24 +120,8 @@ func (e *Engine) Status() StreamStatus {
 		upcoming = append(upcoming, e.requestedTracks[i])
 	}
 	
-	if len(e.activePlaylist) > 0 {
-		idx := e.trackIdx
-		for len(upcoming) < 3 {
-			if idx >= len(e.activePlaylist) {
-				idx = 0
-			}
-			upcoming = append(upcoming, e.activePlaylist[idx])
-			idx++
-			if idx == e.trackIdx || (idx == 0 && e.trackIdx == 0 && len(upcoming) >= len(e.activePlaylist)+len(e.requestedTracks)) {
-				if len(e.activePlaylist) == 1 {
-					for len(upcoming) < 3 {
-						upcoming = append(upcoming, e.activePlaylist[0])
-					}
-				} else {
-					break
-				}
-			}
-		}
+	for i := 0; i < len(e.activePlaylist) && len(upcoming) < 3; i++ {
+		upcoming = append(upcoming, e.activePlaylist[i])
 	}
 
 	return StreamStatus{
@@ -179,30 +162,75 @@ func (e *Engine) CheckTimetable() {
 	}
 }
 
-func (e *Engine) loadMedia() {
+func (e *Engine) loadMedia(forceClear bool) {
 	targetID := e.evaluateTimetable()
 	
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	
-	e.currentPlaylistID = targetID
-	
-	if targetID > 0 {
-		tracks, _ := e.database.GetPlaylistTracks(targetID)
-		
-		// Shuffle tracks
-		rand.Seed(time.Now().UnixNano())
-		rand.Shuffle(len(tracks), func(i, j int) {
-			tracks[i], tracks[j] = tracks[j], tracks[i]
-		})
-		e.activePlaylist = tracks
-	} else {
+	if forceClear || targetID != e.currentPlaylistID {
 		e.activePlaylist = []db.Track{}
+		e.currentPlaylistID = targetID
 	}
+	
+	e.replenishPlaylist(10)
 
 	// load jingles
 	jingles, _ := e.database.GetJingles()
 	e.jingles = jingles
+}
+
+func (e *Engine) replenishPlaylist(targetCount int) {
+	if e.currentPlaylistID <= 0 {
+		return
+	}
+	if len(e.activePlaylist) >= targetCount {
+		return
+	}
+	tracks, _ := e.database.GetPlaylistTracks(e.currentPlaylistID)
+	if len(tracks) == 0 {
+		return
+	}
+
+	var lastArtist string
+	var lastTitle string
+	if len(e.activePlaylist) > 0 {
+		lastArtist = e.activePlaylist[len(e.activePlaylist)-1].Artist
+		lastTitle = e.activePlaylist[len(e.activePlaylist)-1].Title
+	} else if e.currentTrack != nil {
+		lastArtist = e.currentTrack.Artist
+		lastTitle = e.currentTrack.Title
+	}
+
+	for len(e.activePlaylist) < targetCount {
+		shuffled := make([]db.Track, len(tracks))
+		copy(shuffled, tracks)
+		rand.Seed(time.Now().UnixNano())
+		rand.Shuffle(len(shuffled), func(i, j int) {
+			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+		})
+		
+		for i := 0; i < len(shuffled); i++ {
+			if len(tracks) > 2 {
+				if shuffled[i].Artist == lastArtist || shuffled[i].Title == lastTitle {
+					for j := i + 1; j < len(shuffled); j++ {
+						if shuffled[j].Artist != lastArtist && shuffled[j].Title != lastTitle {
+							shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+							break
+						}
+					}
+				}
+			}
+			t := shuffled[i]
+			e.activePlaylist = append(e.activePlaylist, t)
+			lastArtist = t.Artist
+			lastTitle = t.Title
+			
+			if len(e.activePlaylist) >= targetCount {
+				break
+			}
+		}
+	}
 }
 
 func (e *Engine) updateIcecastMetadata(artist, title string) {
@@ -310,7 +338,7 @@ e.mu.Unlock()
 			}
 		}()
 
-		e.loadMedia()
+		e.loadMedia(false)
 
 		if len(e.activePlaylist) == 0 {
 			log.Printf("Warning: No active playlist or tracks found. Idling...")
@@ -390,8 +418,7 @@ e.mu.Unlock()
 				case <-e.stopChan:
 					return
 				case <-e.reloadChan:
-					e.loadMedia()
-					e.trackIdx = 0
+					e.loadMedia(true)
 					if currentS3Stream != nil {
 						currentS3Stream.Close()
 						currentS3Stream = nil
@@ -401,8 +428,7 @@ e.mu.Unlock()
 						nextS3Stream = nil
 					}
 				case <-e.updatePlaylistChan:
-					e.loadMedia()
-					e.trackIdx = 0
+					e.loadMedia(false)
 					// Invalidate prefetch so next track comes from new playlist
 					if nextS3Stream != nil {
 						nextS3Stream.Close()
@@ -462,16 +488,23 @@ e.mu.Unlock()
 						e.mu.Unlock()
 
 						if !isRequest {
-							if e.trackIdx >= len(e.activePlaylist) {
-								e.loadMedia()
-								e.trackIdx = 0
-							}
+							e.mu.Lock()
 							if len(e.activePlaylist) == 0 {
+								e.mu.Unlock()
+								e.loadMedia(false)
+								e.mu.Lock()
+							}
+
+							if len(e.activePlaylist) == 0 {
+								e.mu.Unlock()
+								time.Sleep(1 * time.Second)
 								continue
 							}
 
-							t = e.activePlaylist[e.trackIdx]
-							e.trackIdx++
+							t = e.activePlaylist[0]
+							e.activePlaylist = e.activePlaylist[1:]
+							e.replenishPlaylist(10)
+							e.mu.Unlock()
 						}
 
 						s3Key = t.S3Key
@@ -509,9 +542,13 @@ e.mu.Unlock()
 					e.mu.RLock()
 					reqTracksCopy := make([]db.Track, len(e.requestedTracks))
 					copy(reqTracksCopy, e.requestedTracks)
+					var nextTrackKey string
+					if len(e.activePlaylist) > 0 {
+						nextTrackKey = e.activePlaylist[0].S3Key
+					}
 					e.mu.RUnlock()
 
-					go func(nIdx int, pCount int, reqTracks []db.Track) {
+					go func(pCount int, reqTracks []db.Track, nTrackKey string) {
 						var nKey string
 						
 						willPlayJingle := false
@@ -524,11 +561,8 @@ e.mu.Unlock()
 							nKey = j.S3Key
 						} else if len(reqTracks) > 0 {
 							nKey = reqTracks[0].S3Key
-						} else if len(e.activePlaylist) > 0 {
-							if nIdx >= len(e.activePlaylist) {
-								nIdx = 0
-							}
-							nKey = e.activePlaylist[nIdx].S3Key
+						} else if nTrackKey != "" {
+							nKey = nTrackKey
 						} else {
 							return
 						}
@@ -537,7 +571,7 @@ e.mu.Unlock()
 						if err == nil {
 							nextS3Stream = stream
 						}
-					}(e.trackIdx, e.playCount, reqTracksCopy)
+					}(e.playCount, reqTracksCopy, nextTrackKey)
 
 					frameLoop:
 					for {
@@ -567,8 +601,7 @@ e.mu.Unlock()
 								nextS3Stream = nil
 							}
 						case <-e.reloadChan:
-							e.loadMedia()
-							e.trackIdx = 0
+							e.loadMedia(true)
 							if currentS3Stream != nil {
 								currentS3Stream.Close()
 								currentS3Stream = nil

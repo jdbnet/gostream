@@ -162,8 +162,14 @@ onUnmounted(() => {
           :key="index"
           class="flex items-center space-x-4 p-3 rounded-lg bg-white/[0.01] hover:bg-white/[0.03] transition-colors mb-2 last:mb-0"
         >
-          <div class="w-10 h-10 rounded bg-white/5 flex items-center justify-center shrink-0 border border-border">
-            <span class="text-textSecondary text-sm font-medium">{{ index + 1 }}</span>
+          <div class="w-10 h-10 rounded bg-white/5 flex items-center justify-center shrink-0 border border-border overflow-hidden">
+            <img 
+              v-if="track.artwork_s3_key" 
+              :src="'/api/artwork?key=' + track.artwork_s3_key" 
+              alt="Album Art" 
+              class="w-full h-full object-cover"
+            />
+            <span v-else class="text-textSecondary text-sm font-medium">{{ index + 1 }}</span>
           </div>
           <div class="flex-1 min-w-0">
             <h4 class="text-white font-medium truncate">{{ track.title }}</h4>
