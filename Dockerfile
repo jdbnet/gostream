@@ -22,7 +22,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o gostream main.go
 # Runtime stage
 FROM debian:bookworm-slim
 # Install ffmpeg for normalisation, and ca-certificates for S3 HTTPS
-RUN apt-get update && apt-get install -y ffmpeg ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ffmpeg ca-certificates nano procps && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=go-builder /app/gostream .
 
