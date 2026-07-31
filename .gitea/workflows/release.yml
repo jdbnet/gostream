@@ -15,14 +15,13 @@ jobs:
           fetch-depth: 0
 
       - name: Calculate Version & Create Gitea Release
-        id: semantic
         uses: go-semantic-release/action@v1
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          provider: gitea
-          gitea_host: ${{ gitea.server_url }}
-          slug: ${{ github.repository }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          custom-arguments: >
+            --provider gitea 
+            --provider-opt gitea_host=${{ gitea.server_url }}
+            --provider-opt slug=${{ github.repository }}
+            --provider-opt token=${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
         if: steps.semantic.outputs.version != ''
