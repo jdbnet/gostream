@@ -21,6 +21,7 @@ jobs:
         run: echo "VERSION=${{ github.head_ref }}" >> $GITHUB_OUTPUT
 
       - name: Generate Changelog
+        continue-on-error: true
         id: changelog
         uses: https://github.com/metcalfc/changelog-generator@v4.6.2
         with:
