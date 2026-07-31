@@ -3,15 +3,12 @@ package stream
 import (
 	"bufio"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
 	"math/rand"
-	"net"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -265,57 +262,15 @@ func (e *Engine) updateIcecastMetadata(artist, title string) {
 func (e *Engine) run() {
 	for {
 		e.mu.Lock()
-e.isReconnecting = true
-e.mu.Unlock()
-		e.mu.Lock()
-e.isConnected = false
-e.mu.Unlock()
-		
-		conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", e.cfg.Icecast.Host, e.cfg.Icecast.Port))
+		e.isReconnecting = true
+		e.isConnected = false
+		e.mu.Unlock()
+
+		e.loadMedia(false)
+
+		conn, err := connectIcecastSource(e.cfg)
 		if err != nil {
-			log.Printf("Failed to connect: %v", err)
-			time.Sleep(time.Duration(e.cfg.Stream.ReconnectDelaySeconds) * time.Second)
-			continue
-		}
-
-		auth := base64.StdEncoding.EncodeToString([]byte("source:" + e.cfg.Icecast.Password))
-
-		handshake := fmt.Sprintf(
-			"PUT %s HTTP/1.0\r\n"+
-			"Authorization: Basic %s\r\n"+
-			"Content-Type: audio/mpeg\r\n"+
-			"ice-name: GoStream Radio\r\n"+
-			"ice-bitrate: %d\r\n"+
-			"ice-channels: %d\r\n"+
-			"ice-samplerate: %d\r\n"+
-			"\r\n",
-			e.cfg.Icecast.Mount, auth,
-			e.cfg.Icecast.Bitrate,
-			e.cfg.Icecast.Channels,
-			e.cfg.Icecast.SampleRate,
-		)
-
-		_, err = conn.Write([]byte(handshake))
-		if err != nil {
-			log.Printf("Handshake failed: %v", err)
-			conn.Close()
-			time.Sleep(time.Duration(e.cfg.Stream.ReconnectDelaySeconds) * time.Second)
-			continue
-		}
-
-		// Read Icecast's response
-		buf := make([]byte, 1024)
-		n, err := conn.Read(buf)
-		if err != nil {
-			log.Printf("Failed to read response: %v", err)
-			conn.Close()
-			time.Sleep(time.Duration(e.cfg.Stream.ReconnectDelaySeconds) * time.Second)
-			continue
-		}
-		response := string(buf[:n])
-		if !strings.Contains(response, "200 OK") {
-			log.Printf("Icecast rejected connection: %s", response)
-			conn.Close()
+			log.Printf("Failed to connect to Icecast: %v", err)
 			time.Sleep(time.Duration(e.cfg.Stream.ReconnectDelaySeconds) * time.Second)
 			continue
 		}
@@ -338,13 +293,11 @@ e.mu.Unlock()
 			}
 		}()
 
-		e.loadMedia(false)
-
 		if len(e.activePlaylist) == 0 {
 			log.Printf("Warning: No active playlist or tracks found. Idling...")
 		}
 
-				streamCtx, cancel := context.WithCancel(context.Background())
+		streamCtx, cancel := context.WithCancel(context.Background())
 
 		frameBuffer := make(chan []byte, 500)
 		var nextS3Stream io.ReadCloser
