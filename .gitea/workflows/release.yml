@@ -18,9 +18,11 @@ jobs:
         id: semantic
         uses: go-semantic-release/action@v1
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           provider: gitea
-          gitea-server: ${{ gitea.server_url }}
-          gitea-token: ${{ secrets.GITHUB_TOKEN }}
+          gitea_host: ${{ gitea.server_url }}
+          slug: ${{ github.repository }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
         if: steps.semantic.outputs.version != ''
