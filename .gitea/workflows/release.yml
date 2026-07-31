@@ -1,14 +1,12 @@
 name: Release
 
 on:
-  pull_request:
+  push:
     branches:
       - main
-    types: [closed]
 
 jobs:
   release:
-    if: github.event.pull_request.merged == true && startsWith(github.head_ref, 'v')
     runs-on: build-htz-01
     steps:
       - name: Checkout
@@ -16,59 +14,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Extract Version
-        id: get_version
-        run: echo "VERSION=${{ github.head_ref }}" >> $GITHUB_OUTPUT
-
-      - name: Generate Changelog
-        continue-on-error: true
-        id: changelog
-        uses: https://github.com/metcalfc/changelog-generator@v4.6.2
+      - name: Calculate Version & Create Gitea Release
+        id: semantic
+        uses: go-semantic-release/action@v1
         with:
-          myToken: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          provider: gitea
+          gitea-server: ${{ gitea.server_url }}
 
       - name: Build and push Docker image
+        if: steps.semantic.outputs.version != ''
         run: |
-          VERSION=${{ steps.get_version.outputs.VERSION }}
-          docker build -t cr.jdbnet.co.uk/jdbnet/gostream:$VERSION \
-                       -t cr.jdbnet.co.uk/jdbnet/gostream:latest \
-                       --build-arg VERSION=$VERSION \
-                       .
-          docker push cr.jdbnet.co.uk/jdbnet/gostream:$VERSION
-          docker push cr.jdbnet.co.uk/jdbnet/gostream:latest
-
-      - name: Create Gitea Release
-        uses: https://gitea.com/actions/gitea-release-action@v1
-        with:
-          tag_name: ${{ steps.get_version.outputs.VERSION }}
-          name: ${{ steps.get_version.outputs.VERSION }}
-          body: ${{ steps.changelog.outputs.changelog }}
-          draft: false
-          prerelease: false
-
-  sonarqube:
-    name: SonarQube
-    runs-on: build-htz-01
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Create Valid Project Key
-        id: sonar_setup
-        run: |
-          CLEAN_KEY=$(echo "${{ gitea.repository }}" | tr '/' ':')
-          echo "key=$CLEAN_KEY" >> $GITHUB_OUTPUT
-
-      - name: SonarQube Scan
-        uses: sonarsource/sonarqube-scan-action@master
-        continue-on-error: true
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-        with:
-          args: >
-            -Dsonar.projectKey=${{ steps.sonar_setup.outputs.key }}
-            -Dsonar.projectName=${{ gitea.repository }}
-            -Dsonar.qualitygate.wait=true
+          VERSION="v${{ steps.semantic.outputs.version }}"
+          IMAGE="cr.jdbnet.co.uk/jdbnet/gostream"
+          docker build -t $IMAGE:$VERSION -t $IMAGE:latest --build-arg VERSION=$VERSION .
+          docker push $IMAGE:$VERSION && docker push $IMAGE:latest
