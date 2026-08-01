@@ -15,6 +15,7 @@ jobs:
           fetch-depth: 0
 
       - name: Calculate Version & Create Gitea Release
+        id: semantic
         uses: go-semantic-release/action@v1
         with:
           custom-arguments: >
