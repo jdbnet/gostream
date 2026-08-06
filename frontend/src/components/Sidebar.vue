@@ -1,6 +1,15 @@
 <script setup lang="ts">
+import { watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Radio, Music, Mic2, ListMusic, Settings, Calendar } from 'lucide-vue-next'
+import { Radio, Music, Mic2, ListMusic, Settings, Calendar, X } from 'lucide-vue-next'
+
+defineProps<{
+  open: boolean
+}>()
+
+const emit = defineEmits<{
+  close: []
+}>()
 
 const route = useRoute()
 
@@ -14,37 +23,60 @@ const navItems = [
 ]
 
 const isActive = (path: string) => route.path === path
+
+watch(() => route.path, () => {
+  emit('close')
+})
+
+const onNavigate = () => {
+  if (window.matchMedia('(max-width: 1023px)').matches) {
+    emit('close')
+  }
+}
 </script>
 
 <template>
-  <aside class="w-64 bg-surface border-r border-border flex flex-col h-full shrink-0">
-    <div class="h-16 flex items-center px-6 border-b border-border">
-      <div class="w-8 h-8 flex items-center justify-center mr-3">
-        <img src="/gostream.png" alt="GoStream" class="w-8 h-8" />
+  <aside
+    class="fixed inset-y-0 left-0 z-50 flex h-full w-64 shrink-0 flex-col border-r border-border bg-surface transition-transform duration-300 ease-in-out lg:static lg:translate-x-0"
+    :class="open ? 'translate-x-0' : '-translate-x-full'"
+  >
+    <div class="flex h-16 items-center justify-between border-b border-border px-6">
+      <div class="flex items-center">
+        <div class="mr-3 flex h-8 w-8 items-center justify-center">
+          <img src="/gostream.png" alt="GoStream" class="h-8 w-8" />
+        </div>
+        <h1 class="text-xl font-bold tracking-wide">GoStream</h1>
       </div>
-      <h1 class="text-xl font-bold tracking-wide">GoStream</h1>
+      <button
+        type="button"
+        class="rounded-lg p-2 text-textSecondary transition-colors hover:bg-white/5 hover:text-textPrimary lg:hidden"
+        aria-label="Close menu"
+        @click="emit('close')"
+      >
+        <X class="h-5 w-5" />
+      </button>
     </div>
-    
-    <nav class="flex-1 py-6 px-4 space-y-2">
+
+    <nav class="flex-1 space-y-2 overflow-y-auto px-4 py-6">
       <router-link
         v-for="item in navItems"
         :key="item.path"
         :to="item.path"
-        class="flex items-center px-4 py-3 rounded-lg transition-all duration-200 group"
+        class="group flex items-center rounded-lg px-4 py-3 transition-all duration-200"
         :class="[
-          isActive(item.path) 
-            ? 'bg-accent/10 text-accent font-medium' 
+          isActive(item.path)
+            ? 'bg-accent/10 font-medium text-accent'
             : 'text-textSecondary hover:bg-white/5 hover:text-textPrimary'
         ]"
+        @click="onNavigate"
       >
-        <component 
-          :is="item.icon" 
-          class="w-5 h-5 mr-3 transition-colors"
+        <component
+          :is="item.icon"
+          class="mr-3 h-5 w-5 transition-colors"
           :class="isActive(item.path) ? 'text-accent' : 'text-textSecondary group-hover:text-textPrimary'"
         />
         {{ item.name }}
       </router-link>
     </nav>
-    
   </aside>
 </template>

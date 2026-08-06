@@ -81,9 +81,9 @@ onUnmounted(() => {
 
 <template>
   <div class="max-w-4xl mx-auto space-y-8">
-    <div class="flex items-center justify-between">
-      <h1 class="text-3xl font-bold">Now Playing</h1>
-      <div class="flex items-center space-x-3 bg-surface px-4 py-2 rounded-full border border-border">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <h1 class="text-2xl font-bold sm:text-3xl">Now Playing</h1>
+      <div class="flex w-fit items-center space-x-3 rounded-full border border-border bg-surface px-4 py-2">
         <Activity class="w-4 h-4" :class="status.is_connected ? 'text-green-400' : 'text-red-400'" />
         <span class="text-sm font-medium">
           {{ status.is_connected ? 'Stream Live' : status.is_reconnecting ? 'Reconnecting...' : 'Offline' }}
@@ -92,12 +92,12 @@ onUnmounted(() => {
     </div>
 
     <!-- Main Player Card -->
-    <div class="glass rounded-2xl p-8 relative overflow-hidden group">
+    <div class="glass group relative overflow-hidden rounded-2xl p-5 sm:p-8">
       <!-- Decorative background blur -->
       <div class="absolute -inset-20 bg-accent/10 blur-3xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none"></div>
       
-      <div class="relative flex items-center space-x-8">
-        <div class="w-48 h-48 rounded-xl bg-gradient-to-br from-surface to-border flex items-center justify-center shadow-2xl shrink-0 border border-white/5 overflow-hidden">
+      <div class="relative flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:gap-8">
+        <div class="flex h-40 w-40 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/5 bg-gradient-to-br from-surface to-border shadow-2xl sm:h-48 sm:w-48">
           <img 
             v-if="status.current_track?.artwork_s3_key" 
             :src="'/api/artwork?key=' + status.current_track.artwork_s3_key" 
@@ -107,32 +107,32 @@ onUnmounted(() => {
           <Music v-else class="w-16 h-16 text-textSecondary opacity-50" />
         </div>
         
-        <div class="flex-1 min-w-0">
+        <div class="min-w-0 flex-1 text-center sm:text-left">
           <div v-if="status.current_track" class="space-y-2">
-            <h2 class="text-4xl font-bold truncate text-white drop-shadow-md">
+            <h2 class="truncate text-2xl font-bold text-white drop-shadow-md sm:text-4xl">
               {{ status.current_track.title }}
             </h2>
-            <p class="text-2xl text-accent truncate">
+            <p class="truncate text-xl text-accent sm:text-2xl">
               {{ status.current_track.artist || 'Unknown Artist' }}
             </p>
           </div>
           <div v-else-if="status.current_jingle" class="space-y-2">
-            <h2 class="text-4xl font-bold text-white drop-shadow-md">
+            <h2 class="text-2xl font-bold text-white drop-shadow-md sm:text-4xl">
               GoStream Jingle
             </h2>
-            <p class="text-2xl text-accent truncate">
+            <p class="truncate text-xl text-accent sm:text-2xl">
               {{ status.current_jingle.name }}
             </p>
           </div>
           <div v-else class="space-y-2">
-            <h2 class="text-4xl font-bold text-textSecondary">Not Playing</h2>
-            <p class="text-xl text-textSecondary/60">Stream is idle or buffering</p>
+            <h2 class="text-2xl font-bold text-textSecondary sm:text-4xl">Not Playing</h2>
+            <p class="text-lg text-textSecondary/60 sm:text-xl">Stream is idle or buffering</p>
           </div>
 
-          <div class="mt-8 flex items-center space-x-4">
+          <div class="mt-6 flex flex-col gap-3 sm:mt-8 sm:flex-row sm:items-center sm:gap-4">
             <button 
               @click="togglePlay"
-              class="flex items-center space-x-2 bg-accent hover:bg-accent/90 text-white px-6 py-3 rounded-xl transition-all active:scale-95 shadow-lg shadow-accent/20"
+              class="flex items-center justify-center space-x-2 rounded-xl bg-accent px-6 py-3 text-white shadow-lg shadow-accent/20 transition-all hover:bg-accent/90 active:scale-95"
             >
               <Square v-if="isPlaying" class="w-5 h-5 fill-current" />
               <Play v-else class="w-5 h-5 fill-current" />
@@ -141,7 +141,7 @@ onUnmounted(() => {
 
             <button  
               @click="skipTrack"
-              class="flex items-center space-x-2 bg-white/5 hover:bg-white/10 text-white px-6 py-3 rounded-xl transition-all active:scale-95 border border-white/10 hover:border-accent/50"
+              class="flex items-center justify-center space-x-2 rounded-xl border border-white/10 bg-white/5 px-6 py-3 text-white transition-all hover:border-accent/50 hover:bg-white/10 active:scale-95"
             >
               <SkipForward class="w-5 h-5" />
               <span class="font-medium">Skip Track</span>
@@ -186,19 +186,20 @@ onUnmounted(() => {
         <div v-if="history.length === 0" class="p-8 text-center text-textSecondary">
           No play history yet.
         </div>
-        <table v-else class="w-full text-left">
+        <div v-else class="overflow-x-auto">
+        <table class="w-full min-w-[320px] text-left">
           <thead class="bg-white/5 border-b border-border">
             <tr>
-              <th class="px-6 py-4 font-medium text-textSecondary">Time</th>
-              <th class="px-6 py-4 font-medium text-textSecondary">Track / Jingle</th>
+              <th class="px-4 py-3 font-medium text-textSecondary sm:px-6 sm:py-4">Time</th>
+              <th class="px-4 py-3 font-medium text-textSecondary sm:px-6 sm:py-4">Track / Jingle</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-border">
             <tr v-for="entry in history" :key="entry.id" class="hover:bg-white/[0.02] transition-colors">
-              <td class="px-6 py-4 text-textSecondary whitespace-nowrap">
+              <td class="whitespace-nowrap px-4 py-3 text-textSecondary sm:px-6 sm:py-4">
                 {{ new Date(entry.played_at).toLocaleTimeString() }}
               </td>
-              <td class="px-6 py-4 font-medium text-white">
+              <td class="px-4 py-3 font-medium text-white sm:px-6 sm:py-4">
                 <template v-if="entry.was_jingle">
                   <span class="text-accent">Jingle Played</span>
                 </template>
@@ -212,6 +213,7 @@ onUnmounted(() => {
             </tr>
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   </div>

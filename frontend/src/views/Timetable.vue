@@ -110,8 +110,8 @@ onMounted(fetchData)
 
 <template>
   <div class="max-w-7xl mx-auto h-full flex flex-col space-y-6 pb-12">
-    <div class="flex items-center justify-between shrink-0">
-      <h1 class="text-3xl font-bold">Timetable</h1>
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between shrink-0">
+      <h1 class="text-2xl font-bold sm:text-3xl">Timetable</h1>
       <button @click="openAddModal(0, 12)" class="btn-primary flex items-center px-4 py-2 rounded-lg font-medium text-sm">
         <Plus class="w-4 h-4 mr-2" />
         Add Schedule
@@ -196,7 +196,7 @@ onMounted(fetchData)
             </select>
           </div>
 
-          <div class="grid grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label class="block text-sm font-medium text-textSecondary mb-1">Start Time</label>
               <div class="flex space-x-2">

@@ -59,8 +59,9 @@ onMounted(fetchJingles)
       @uploaded="fetchJingles"
     />
 
-    <div class="glass rounded-xl overflow-hidden border border-border">
-      <table class="w-full text-left">
+    <div class="glass overflow-hidden rounded-xl border border-border">
+      <div class="overflow-x-auto">
+      <table class="w-full min-w-[480px] text-left">
         <thead class="bg-white/5 border-b border-border text-textSecondary text-sm uppercase tracking-wider">
           <tr>
             <th class="px-6 py-4 font-medium">Name</th>
@@ -94,7 +95,7 @@ onMounted(fetchJingles)
             <template v-else>
               <td class="px-6 py-4 font-medium text-white">{{ jingle.name }}</td>
               <td class="px-6 py-4 text-textSecondary">{{ new Date(jingle.uploaded_at).toLocaleDateString() }}</td>
-              <td class="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+              <td class="px-6 py-4 text-right opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
                 <div class="flex items-center justify-end space-x-2">
                   <button @click="startEdit(jingle)" class="text-accent hover:text-accent/80 p-2 rounded-lg hover:bg-accent/10 transition-colors" title="Edit">
                     <Edit2 class="w-4 h-4" />
@@ -108,6 +109,7 @@ onMounted(fetchJingles)
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
   </div>
 </template>

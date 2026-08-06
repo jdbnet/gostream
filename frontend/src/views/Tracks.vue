@@ -115,8 +115,8 @@ onMounted(() => {
       @uploaded="fetchTracks"
     />
 
-    <div class="glass rounded-xl overflow-hidden border border-border">
-      <div class="p-4 border-b border-border flex items-center bg-white/[0.02]">
+    <div class="glass overflow-hidden rounded-xl border border-border">
+      <div class="flex items-center border-b border-border bg-white/[0.02] p-4">
         <Search class="w-5 h-5 text-textSecondary mr-3" />
         <input 
           type="text" 
@@ -127,7 +127,8 @@ onMounted(() => {
         />
       </div>
 
-      <table class="w-full text-left">
+      <div class="overflow-x-auto">
+      <table class="w-full min-w-[640px] text-left">
         <thead class="bg-white/5 border-b border-border text-textSecondary text-sm uppercase tracking-wider">
           <tr>
             <th class="px-6 py-4 font-medium">Title</th>
@@ -166,7 +167,7 @@ onMounted(() => {
               <td class="px-6 py-4 font-medium text-white">{{ track.title }}</td>
               <td class="px-6 py-4 text-textSecondary">{{ track.artist || 'Unknown' }}</td>
               <td class="px-6 py-4 text-textSecondary">{{ track.play_count }}</td>
-              <td class="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+              <td class="px-6 py-4 text-right opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
                 <div class="flex items-center justify-end space-x-2">
                   <button @click="requestTrack(track.id)" class="text-blue-400 hover:text-blue-300 p-2 rounded-lg hover:bg-blue-400/10 transition-colors" title="Request Track (Play Next)">
                     <PlaySquare class="w-4 h-4" />
@@ -183,9 +184,10 @@ onMounted(() => {
           </tr>
         </tbody>
       </table>
+      </div>
       
       <!-- Pagination -->
-      <div v-if="totalTracks > limit" class="p-4 border-t border-border flex items-center justify-between bg-white/[0.02] text-sm text-textSecondary">
+      <div v-if="totalTracks > limit" class="flex flex-col gap-3 border-t border-border bg-white/[0.02] p-4 text-sm text-textSecondary sm:flex-row sm:items-center sm:justify-between">
         <div>
           Showing {{ (currentPage - 1) * limit + 1 }} to {{ Math.min(currentPage * limit, totalTracks) }} of {{ totalTracks }} tracks
         </div>

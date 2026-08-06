@@ -47,10 +47,10 @@ onMounted(fetchPlaylists)
 </script>
 
 <template>
-  <div class="max-w-6xl mx-auto flex gap-8 h-[calc(100vh-4rem)]">
+  <div class="mx-auto flex h-auto max-w-6xl flex-col gap-6 lg:h-[calc(100vh-4rem)] lg:flex-row lg:gap-8">
     <!-- Playlists Sidebar -->
-    <div class="w-1/3 flex flex-col space-y-4">
-      <h1 class="text-3xl font-bold mb-4">Playlists</h1>
+    <div class="flex w-full flex-col space-y-4 lg:w-1/3 lg:shrink-0">
+      <h1 class="text-2xl font-bold sm:text-3xl">Playlists</h1>
       
       <form @submit.prevent="createPlaylist" class="flex items-center space-x-2">
         <input 
@@ -64,7 +64,7 @@ onMounted(fetchPlaylists)
         </button>
       </form>
 
-      <div class="flex-1 overflow-y-auto space-y-2 pr-2">
+      <div class="max-h-72 space-y-2 overflow-y-auto pr-2 lg:max-h-none lg:flex-1">
         <div 
           v-for="p in playlists" 
           :key="p.id"
@@ -99,7 +99,7 @@ onMounted(fetchPlaylists)
     </div>
 
     <!-- Playlist Editor -->
-    <div class="flex-1 glass rounded-2xl border border-border overflow-hidden flex flex-col relative">
+    <div class="relative flex min-h-[24rem] flex-1 flex-col overflow-hidden rounded-2xl border border-border glass lg:min-h-0">
       <PlaylistEditor 
         v-if="selectedPlaylist" 
         :playlist="selectedPlaylist" 

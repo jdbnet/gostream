@@ -35,11 +35,11 @@ onMounted(fetchConfig)
 
 <template>
   <div class="max-w-4xl mx-auto space-y-8 pb-12">
-    <div class="flex items-center justify-between">
-      <h1 class="text-3xl font-bold">Settings</h1>
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <h1 class="text-2xl font-bold sm:text-3xl">Settings</h1>
       <button 
         @click="saveConfig"
-        class="flex items-center space-x-2 bg-accent text-background px-6 py-2.5 rounded-xl font-medium hover:bg-accent/90 transition-colors"
+        class="flex w-full items-center justify-center space-x-2 rounded-xl bg-accent px-6 py-2.5 font-medium text-background transition-colors hover:bg-accent/90 sm:w-auto"
       >
         <Save class="w-5 h-5" />
         <span>Save Configuration</span>
@@ -61,7 +61,7 @@ onMounted(fetchConfig)
       <!-- Database Settings -->
       <section class="glass rounded-xl p-6 border border-border">
         <h2 class="text-xl font-bold mb-6 text-white border-b border-border pb-4">Database</h2>
-        <div class="grid grid-cols-2 gap-6">
+        <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
           <div class="space-y-2">
             <label class="text-sm text-textSecondary">Host</label>
             <input v-model="config.database.host" type="text" class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50" />
@@ -88,7 +88,7 @@ onMounted(fetchConfig)
       <!-- S3 Settings -->
       <section class="glass rounded-xl p-6 border border-border">
         <h2 class="text-xl font-bold mb-6 text-white border-b border-border pb-4">S3 Storage</h2>
-        <div class="grid grid-cols-2 gap-6">
+        <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
           <div class="space-y-2 col-span-2">
             <label class="text-sm text-textSecondary">Endpoint URL (Optional)</label>
             <input v-model="config.s3.endpoint" type="text" placeholder="https://..." class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50" />
@@ -119,7 +119,7 @@ onMounted(fetchConfig)
       <!-- Icecast Settings -->
       <section class="glass rounded-xl p-6 border border-border">
         <h2 class="text-xl font-bold mb-6 text-white border-b border-border pb-4">Icecast Source</h2>
-        <div class="grid grid-cols-2 gap-6">
+        <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
           <div class="space-y-2">
             <label class="text-sm text-textSecondary">Protocol</label>
             <select v-model="config.icecast.protocol" class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50 appearance-none">
@@ -174,7 +174,7 @@ onMounted(fetchConfig)
             <p class="text-xs text-textSecondary/60 mt-1">Set to 0 to disable jingles.</p>
           </div>
           
-          <div class="grid grid-cols-2 gap-6">
+          <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div class="space-y-2">
               <label class="text-sm text-textSecondary">Reconnect Delay (Seconds)</label>
               <input v-model.number="config.stream.reconnect_delay_seconds" type="number" class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50" />
