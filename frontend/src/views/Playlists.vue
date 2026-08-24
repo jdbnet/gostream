@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Plus, CheckCircle2, Trash2, ListMusic } from 'lucide-vue-next'
+import { Plus, CheckCircle2, Trash2, ListMusic } from '@lucide/vue'
 import PlaylistEditor from '../components/PlaylistEditor.vue'
 
 const playlists = ref<any[]>([])

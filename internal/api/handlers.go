@@ -6,14 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"gostream/internal/config"
 	"gostream/internal/db"
-	"gostream/internal/s3"
+	"gostream/internal/storage"
 	"gostream/internal/stream"
-	"gostream/internal/upload"
 )
 
 // Tracks
@@ -22,7 +20,7 @@ func (s *Server) handleGetTracks(c *gin.Context) {
 	limit := 50
 	offset := (page - 1) * limit
 	searchQuery := c.Query("q")
-	
+
 	tracks, total, err := s.database.GetTracks(searchQuery, offset, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -30,7 +28,7 @@ func (s *Server) handleGetTracks(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"tracks": tracks,
-		"total": total,
+		"total":  total,
 	})
 }
 
@@ -45,111 +43,33 @@ func (s *Server) handleUploadTrack(c *gin.Context) {
 	title := c.PostForm("title")
 	artist := c.PostForm("artist")
 
-	// Save to temp
-	tmpDir, _ := os.MkdirTemp("", "gostream_upload")
+	tmpDir, err := os.MkdirTemp("", "gostream_upload")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	defer os.RemoveAll(tmpDir)
 
 	inPath := filepath.Join(tmpDir, "input.mp3")
-	outPath := filepath.Join(tmpDir, "output.mp3")
-
 	if err := c.SaveUploadedFile(header, inPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	var trackDuration int
-	metaTitle, metaArtist, duration, metaErr := upload.ExtractMetadata(inPath)
-	if metaErr == nil {
-		if title == "" && metaTitle != "" {
-			title = metaTitle
-		}
-		if artist == "" && metaArtist != "" {
-			artist = metaArtist
-		}
-		trackDuration = duration
+	opts := storage.TrackImportOptions{
+		Title:  title,
+		Artist: artist,
 	}
-
-	if title == "" {
-		ext := filepath.Ext(header.Filename)
-		title = header.Filename[:len(header.Filename)-len(ext)]
-	}
-
-	// Check for duplicates
-	if existingTrack, err := s.database.GetTrackByTitleAndArtist(title, artist); err == nil && existingTrack != nil {
-		playlistID := c.PostForm("playlist_id")
-		if playlistID != "" {
-			if pid, err := strconv.Atoi(playlistID); err == nil {
-				tracks, _ := s.database.GetPlaylistTracks(pid)
-				s.database.AddTrackToPlaylist(pid, existingTrack.ID, len(tracks))
-			}
-		}
-		c.JSON(http.StatusOK, existingTrack)
-		return
-	}
-
-	// Normalize
-	if err := upload.NormalizeAudio(inPath, outPath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ffmpeg failed: " + err.Error()})
-		return
-	}
-
-	// Read output stats
-	stat, err := os.Stat(outPath)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	
-	outFile, err := os.Open(outPath)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	defer outFile.Close()
-
-	// S3 Key
-	s3Key := fmt.Sprintf("tracks/%d_%s", time.Now().UnixNano(), filepath.Base(outPath))
-	if err := s.s3.UploadLocalFile(s3Key, outFile, "audio/mpeg"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Extract and upload artwork if present
-	artworkPath := filepath.Join(tmpDir, "artwork.jpg")
-	var artworkS3Key string
-	if err := upload.ExtractArtwork(inPath, artworkPath); err == nil {
-		if stat, err := os.Stat(artworkPath); err == nil && stat.Size() > 0 {
-			if artFile, err := os.Open(artworkPath); err == nil {
-				key := fmt.Sprintf("artworks/%d_%s.jpg", time.Now().UnixNano(), filepath.Base(outPath))
-				if err := s.s3.UploadLocalFile(key, artFile, "image/jpeg"); err == nil {
-					artworkS3Key = key
-				}
-				artFile.Close()
-			}
-		}
-	}
-
-	// insert to db
-	t := &db.Track{
-		Title:         title,
-		Artist:        artist,
-		DurationSeconds: trackDuration,
-		FileSizeBytes: stat.Size(),
-		S3Key:         s3Key,
-		ArtworkS3Key:  artworkS3Key,
-	}
-	if err := s.database.InsertTrack(t); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	playlistID := c.PostForm("playlist_id")
-	if playlistID != "" {
+	if playlistID := c.PostForm("playlist_id"); playlistID != "" {
 		if pid, err := strconv.Atoi(playlistID); err == nil {
-			// Append to the end of the playlist
-			tracks, _ := s.database.GetPlaylistTracks(pid)
-			s.database.AddTrackToPlaylist(pid, t.ID, len(tracks))
+			opts.PlaylistID = pid
 		}
+	}
+
+	t, err := storage.ProcessTrack(s.database, s.store, inPath, opts)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, t)
@@ -157,7 +77,7 @@ func (s *Server) handleUploadTrack(c *gin.Context) {
 
 func (s *Server) handleUpdateTrack(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	
+
 	var req struct {
 		Title  string `json:"title"`
 		Artist string `json:"artist"`
@@ -166,7 +86,7 @@ func (s *Server) handleUpdateTrack(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	if err := s.database.UpdateTrack(id, req.Title, req.Artist); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -178,8 +98,8 @@ func (s *Server) handleDeleteTrack(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
 	t, err := s.database.GetTrack(id)
 	if err == nil {
-		s.s3.DeleteFile(t.S3Key)
-		s.database.DeleteTrack(id)
+		_ = s.store.Delete(t.S3Key)
+		_ = s.database.DeleteTrack(id)
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
@@ -207,40 +127,21 @@ func (s *Server) handleUploadJingle(c *gin.Context) {
 		name = header.Filename
 	}
 
-	tmpDir, _ := os.MkdirTemp("", "gostream_jingle")
+	tmpDir, err := os.MkdirTemp("", "gostream_jingle")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	defer os.RemoveAll(tmpDir)
 
 	inPath := filepath.Join(tmpDir, "input.mp3")
-	outPath := filepath.Join(tmpDir, "output.mp3")
-
 	if err := c.SaveUploadedFile(header, inPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := upload.NormalizeAudio(inPath, outPath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "ffmpeg failed: " + err.Error()})
-		return
-	}
-	
-	outFile, err := os.Open(outPath)
+	j, err := storage.ProcessJingle(s.database, s.store, inPath, "", name)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	defer outFile.Close()
-
-	s3Key := fmt.Sprintf("jingles/%d_%s", time.Now().UnixNano(), filepath.Base(outPath))
-	if err := s.s3.UploadLocalFile(s3Key, outFile, "audio/mpeg"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	j := &db.Jingle{
-		Name:  name,
-		S3Key: s3Key,
-	}
-	if err := s.database.InsertJingle(j); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -252,15 +153,15 @@ func (s *Server) handleDeleteJingle(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
 	j, err := s.database.GetJingle(id)
 	if err == nil {
-		s.s3.DeleteFile(j.S3Key)
-		s.database.DeleteJingle(id)
+		_ = s.store.Delete(j.S3Key)
+		_ = s.database.DeleteJingle(id)
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func (s *Server) handleUpdateJingle(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	
+
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -268,7 +169,7 @@ func (s *Server) handleUpdateJingle(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	if err := s.database.UpdateJingle(id, req.Name); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -294,7 +195,7 @@ func (s *Server) handleCreatePlaylist(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	p, err := s.database.CreatePlaylist(req.Name)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -312,7 +213,7 @@ func (s *Server) handleUpdatePlaylist(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	if req.IsActive != nil {
 		if *req.IsActive {
 			s.database.SetActivePlaylist(id)
@@ -398,10 +299,9 @@ func (s *Server) handleSaveTimetable(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	
-	// Refresh engine
+
 	s.engine.CheckTimetable()
-	
+
 	c.JSON(http.StatusOK, entry)
 }
 
@@ -411,21 +311,19 @@ func (s *Server) handleDeleteTimetable(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	
-	// Refresh engine
+
 	s.engine.CheckTimetable()
-	
+
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 func (s *Server) handleGetConfig(c *gin.Context) {
-	// redact passwords
 	safeCfg := *s.cfg
 	if safeCfg.Database.Password != "" {
 		safeCfg.Database.Password = "********"
 	}
-	if safeCfg.S3.SecretKey != "" {
-		safeCfg.S3.SecretKey = "********"
+	if safeCfg.Storage.S3.SecretKey != "" {
+		safeCfg.Storage.S3.SecretKey = "********"
 	}
 	if safeCfg.Icecast.Password != "" && safeCfg.Icecast.Password != "hackme" {
 		safeCfg.Icecast.Password = "********"
@@ -433,7 +331,7 @@ func (s *Server) handleGetConfig(c *gin.Context) {
 	if safeCfg.Icecast.AdminPassword != "" && safeCfg.Icecast.AdminPassword != "admin" {
 		safeCfg.Icecast.AdminPassword = "********"
 	}
-	
+
 	c.JSON(http.StatusOK, safeCfg)
 }
 
@@ -443,13 +341,12 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
-	// Keep passwords if they are ********
+
 	if req.Database.Password == "********" {
 		req.Database.Password = s.cfg.Database.Password
 	}
-	if req.S3.SecretKey == "********" {
-		req.S3.SecretKey = s.cfg.S3.SecretKey
+	if req.Storage.S3.SecretKey == "********" {
+		req.Storage.S3.SecretKey = s.cfg.Storage.S3.SecretKey
 	}
 	if req.Icecast.Password == "********" {
 		req.Icecast.Password = s.cfg.Icecast.Password
@@ -457,16 +354,22 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 	if req.Icecast.AdminPassword == "********" {
 		req.Icecast.AdminPassword = s.cfg.Icecast.AdminPassword
 	}
-	
+
+	req.Normalize()
+
 	if err := config.Save(&req); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	
-	// Update in memory
+
 	*s.cfg = req
 
-	// Attempt to connect/reconnect to DB to create tables immediately
+	if err := config.ApplyTimezone(s.cfg); err != nil {
+		fmt.Printf("Timezone update failed: %v\n", err)
+	} else {
+		fmt.Printf("Timezone set to %s\n", s.cfg.EffectiveTimezone())
+	}
+
 	if newDB, err := db.Connect(s.cfg); err == nil {
 		if s.database != nil {
 			s.database.Close()
@@ -477,25 +380,35 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 		fmt.Printf("Database reconnection failed: %v\n", err)
 	}
 
-	// Attempt to connect/reconnect to S3
-	if newS3, err := s3.NewClient(s.cfg); err == nil {
-		s.s3 = newS3
-		fmt.Println("S3 reconnected successfully")
+	if newStore, err := storage.New(s.cfg); err == nil {
+		s.store = newStore
+		fmt.Println("Storage reconnected successfully")
+		if local, ok := newStore.(*storage.LocalBackend); ok && !local.Writable() {
+			fmt.Println("Warning: local storage is not writable")
+		}
 	} else {
-		fmt.Printf("S3 reconnection failed: %v\n", err)
+		fmt.Printf("Storage reconnection failed: %v\n", err)
 	}
 
-	// Restart Engine with new config
-	if s.database != nil && s.s3 != nil {
+	if s.database != nil && s.store != nil {
 		if s.engine != nil {
 			s.engine.Stop()
 		}
-		s.engine = stream.NewEngine(s.cfg, s.database, s.s3)
+		s.engine = stream.NewEngine(s.cfg, s.database, s.store)
 		s.engine.Start()
 		fmt.Printf("Stream engine restarted successfully\n")
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "saved and applied successfully"})
+}
+
+func (s *Server) handleStorageScan(c *gin.Context) {
+	result, err := storage.ScanLibrary(s.database, s.store)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 func (s *Server) handleRequestTrack(c *gin.Context) {
@@ -505,7 +418,7 @@ func (s *Server) handleRequestTrack(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "track not found"})
 		return
 	}
-	
+
 	s.engine.RequestTrack(*track)
 	c.JSON(http.StatusOK, gin.H{"status": "track requested"})
 }
@@ -516,15 +429,15 @@ func (s *Server) handleGetArtwork(c *gin.Context) {
 		c.Status(http.StatusBadRequest)
 		return
 	}
-	
-	stream, err := s.s3.GetStream(key)
+
+	reader, err := s.store.GetStream(key)
 	if err != nil {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	defer stream.Close()
-	
-	c.DataFromReader(http.StatusOK, -1, "image/jpeg", stream, map[string]string{
+	defer reader.Close()
+
+	c.DataFromReader(http.StatusOK, -1, "image/jpeg", reader, map[string]string{
 		"Cache-Control": "public, max-age=31536000",
 	})
 }

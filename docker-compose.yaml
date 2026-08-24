@@ -1,0 +1,14 @@
+services:
+  gostream:
+    image: ghcr.io/jdbnet/gostream:latest
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - gostream_config:/home/gostream/.config/gostream
+      - gostream_data:/home/gostream/.local/share/gostream
+    restart: unless-stopped
+
+volumes:
+  gostream_config:
+  gostream_data:

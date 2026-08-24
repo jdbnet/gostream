@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Trash2, Edit2, Save, X } from 'lucide-vue-next'
+import { Trash2, Edit2, Save, X } from '@lucide/vue'
 import TrackUploader from '../components/TrackUploader.vue'
 
 const jingles = ref<any[]>([])

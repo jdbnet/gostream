@@ -2,67 +2,59 @@ package db
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/go-sql-driver/mysql"
+	_ "modernc.org/sqlite"
 	"gostream/internal/config"
 )
 
-var schema = `
-CREATE TABLE IF NOT EXISTS tracks (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  title VARCHAR(255) NOT NULL,
-  artist VARCHAR(255),
-  duration_seconds INT,
-  file_size_bytes BIGINT,
-  s3_key VARCHAR(512) NOT NULL,
-  uploaded_at DATETIME DEFAULT NOW(),
-  play_count INT DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS jingles (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(255) NOT NULL,
-  s3_key VARCHAR(512) NOT NULL,
-  uploaded_at DATETIME DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS playlists (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(255) NOT NULL,
-  is_active BOOLEAN DEFAULT FALSE,
-  created_at DATETIME DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS playlist_tracks (
-  playlist_id INT,
-  track_id INT,
-  position INT,
-  PRIMARY KEY (playlist_id, track_id)
-);
-
-CREATE TABLE IF NOT EXISTS play_history (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  track_id INT,
-  played_at DATETIME DEFAULT NOW(),
-  was_jingle BOOLEAN DEFAULT FALSE
-);
-
-CREATE TABLE IF NOT EXISTS timetable (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  playlist_id INT,
-  day_of_week INT,
-  start_minute INT,
-  end_minute INT,
-  FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
-);
-`
-
 type DB struct {
 	*sqlx.DB
+	driver string
 }
 
 func Connect(cfg *config.Config) (*DB, error) {
+	cfg.Normalize()
+	switch cfg.Database.Driver {
+	case "sqlite":
+		return connectSQLite(cfg)
+	case "mariadb":
+		return connectMariaDB(cfg)
+	default:
+		return nil, fmt.Errorf("unknown database driver: %s", cfg.Database.Driver)
+	}
+}
+
+func connectSQLite(cfg *config.Config) (*DB, error) {
+	dbPath := cfg.Database.Path
+	if dbPath == "" {
+		return nil, fmt.Errorf("sqlite database path not configured")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		return nil, fmt.Errorf("failed to create database directory: %w", err)
+	}
+
+	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)", dbPath)
+	db, err := sqlx.Connect("sqlite", dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = db.Exec(sqliteSchema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize schema: %w", err)
+	}
+
+	migrateArtworkColumn(db)
+
+	return &DB{DB: db, driver: "sqlite"}, nil
+}
+
+func connectMariaDB(cfg *config.Config) (*DB, error) {
 	dsnWithoutDB := fmt.Sprintf("%s:%s@tcp(%s:%d)/?parseTime=true&multiStatements=true&loc=Local",
 		cfg.Database.User,
 		cfg.Database.Password,
@@ -74,7 +66,7 @@ func Connect(cfg *config.Config) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to mysql server: %w", err)
 	}
-	
+
 	_, err = tempDB.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`;", cfg.Database.Name))
 	tempDB.Close()
 	if err != nil {
@@ -94,14 +86,20 @@ func Connect(cfg *config.Config) (*DB, error) {
 		return nil, err
 	}
 
-	// Initialize schema
-	_, err = db.Exec(schema)
+	_, err = db.Exec(mysqlSchema)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
-	// Add artwork_s3_key column if it doesn't exist
-	_, _ = db.Exec("ALTER TABLE tracks ADD COLUMN artwork_s3_key VARCHAR(512) DEFAULT ''")
+	migrateArtworkColumn(db)
 
-	return &DB{db}, nil
+	return &DB{DB: db, driver: "mysql"}, nil
+}
+
+func migrateArtworkColumn(db *sqlx.DB) {
+	_, _ = db.Exec("ALTER TABLE tracks ADD COLUMN artwork_s3_key VARCHAR(512) DEFAULT ''")
+}
+
+func (db *DB) Driver() string {
+	return db.driver
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { Search, Trash2, Edit2, Save, X, PlaySquare } from 'lucide-vue-next'
+import { Search, Trash2, Edit2, Save, X, PlaySquare } from '@lucide/vue'
 import TrackUploader from '../components/TrackUploader.vue'
 
 const tracks = ref<any[]>([])

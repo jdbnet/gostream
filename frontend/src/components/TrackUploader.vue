@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { UploadCloud, Loader2 } from 'lucide-vue-next'
+import { UploadCloud, Loader2 } from '@lucide/vue'
 
 const props = defineProps<{
   endpoint: string

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Radio, Music, Mic2, ListMusic, Settings, Calendar, X } from 'lucide-vue-next'
+import { Radio, Music, Mic2, ListMusic, Settings, Calendar, X } from '@lucide/vue'
 
 defineProps<{
   open: boolean

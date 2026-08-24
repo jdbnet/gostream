@@ -88,6 +88,34 @@ func (db *DB) GetTrackByTitleAndArtist(title, artist string) (*Track, error) {
 	return &track, err
 }
 
+func (db *DB) GetTrackByStorageKey(key string) (*Track, error) {
+	var track Track
+	err := db.Get(&track, "SELECT * FROM tracks WHERE s3_key = ?", key)
+	return &track, err
+}
+
+func (db *DB) GetJingleByStorageKey(key string) (*Jingle, error) {
+	var jingle Jingle
+	err := db.Get(&jingle, "SELECT * FROM jingles WHERE s3_key = ?", key)
+	return &jingle, err
+}
+
+func (db *DB) StorageKeyExists(key string) (bool, error) {
+	var count int
+	err := db.Get(&count, "SELECT COUNT(*) FROM tracks WHERE s3_key = ?", key)
+	if err != nil {
+		return false, err
+	}
+	if count > 0 {
+		return true, nil
+	}
+	err = db.Get(&count, "SELECT COUNT(*) FROM jingles WHERE s3_key = ?", key)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (db *DB) DeleteTrack(id int) error {
 	_, err := db.Exec("DELETE FROM tracks WHERE id = ?", id)
 	return err

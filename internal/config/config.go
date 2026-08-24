@@ -4,16 +4,20 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
 	Server struct {
-		Port int `yaml:"port" json:"port"`
+		Port     int    `yaml:"port" json:"port"`
+		Timezone string `yaml:"timezone" json:"timezone"`
 	} `yaml:"server" json:"server"`
 
 	Database struct {
+		Driver   string `yaml:"driver" json:"driver"`
+		Path     string `yaml:"path" json:"path"`
 		Host     string `yaml:"host" json:"host"`
 		Port     int    `yaml:"port" json:"port"`
 		Name     string `yaml:"name" json:"name"`
@@ -21,25 +25,30 @@ type Config struct {
 		Password string `yaml:"password" json:"password"`
 	} `yaml:"database" json:"database"`
 
-	S3 struct {
-		Endpoint   string `yaml:"endpoint" json:"endpoint"`
-		Bucket     string `yaml:"bucket" json:"bucket"`
-		Region     string `yaml:"region" json:"region"`
-		AccessKey  string `yaml:"access_key" json:"access_key"`
-		SecretKey  string `yaml:"secret_key" json:"secret_key"`
-		PathStyle  bool   `yaml:"path_style" json:"path_style"`
-	} `yaml:"s3" json:"s3"`
+	Storage struct {
+		Type              string `yaml:"type" json:"type"`
+		LocalPath         string `yaml:"local_path" json:"local_path"`
+		AutoScanOnStartup bool   `yaml:"auto_scan_on_startup" json:"auto_scan_on_startup"`
+		S3                struct {
+			Endpoint  string `yaml:"endpoint" json:"endpoint"`
+			Bucket    string `yaml:"bucket" json:"bucket"`
+			Region    string `yaml:"region" json:"region"`
+			AccessKey string `yaml:"access_key" json:"access_key"`
+			SecretKey string `yaml:"secret_key" json:"secret_key"`
+			PathStyle bool   `yaml:"path_style" json:"path_style"`
+		} `yaml:"s3" json:"s3"`
+	} `yaml:"storage" json:"storage"`
 
 	Icecast struct {
-		Protocol   string `yaml:"protocol" json:"protocol"`
-		Host       string `yaml:"host" json:"host"`
-		Port       int    `yaml:"port" json:"port"`
+		Protocol      string `yaml:"protocol" json:"protocol"`
+		Host          string `yaml:"host" json:"host"`
+		Port          int    `yaml:"port" json:"port"`
 		Mount         string `yaml:"mount" json:"mount"`
 		Password      string `yaml:"password" json:"password"`
 		AdminPassword string `yaml:"admin_password" json:"admin_password"`
 		Bitrate       int    `yaml:"bitrate" json:"bitrate"`
-		SampleRate int    `yaml:"sample_rate" json:"sample_rate"`
-		Channels   int    `yaml:"channels" json:"channels"`
+		SampleRate    int    `yaml:"sample_rate" json:"sample_rate"`
+		Channels      int    `yaml:"channels" json:"channels"`
 	} `yaml:"icecast" json:"icecast"`
 
 	Stream struct {
@@ -49,22 +58,40 @@ type Config struct {
 	} `yaml:"stream" json:"stream"`
 }
 
+func DefaultDataDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "share", "gostream"), nil
+}
+
 func DefaultConfig() *Config {
 	cfg := &Config{}
 	cfg.Server.Port = 8080
+	cfg.Server.Timezone = "Europe/London"
 
+	cfg.Database.Driver = "sqlite"
 	cfg.Database.Host = "localhost"
 	cfg.Database.Port = 3306
 	cfg.Database.Name = "gostream"
 	cfg.Database.User = "gostream"
 	cfg.Database.Password = ""
 
-	cfg.S3.Endpoint = ""
-	cfg.S3.Bucket = ""
-	cfg.S3.Region = ""
-	cfg.S3.AccessKey = ""
-	cfg.S3.SecretKey = ""
-	cfg.S3.PathStyle = true
+	dataDir, err := DefaultDataDir()
+	if err == nil {
+		cfg.Database.Path = filepath.Join(dataDir, "gostream.db")
+		cfg.Storage.LocalPath = filepath.Join(dataDir, "media")
+	}
+
+	cfg.Storage.Type = "local"
+	cfg.Storage.AutoScanOnStartup = true
+	cfg.Storage.S3.Endpoint = ""
+	cfg.Storage.S3.Bucket = ""
+	cfg.Storage.S3.Region = ""
+	cfg.Storage.S3.AccessKey = ""
+	cfg.Storage.S3.SecretKey = ""
+	cfg.Storage.S3.PathStyle = true
 
 	cfg.Icecast.Protocol = "http"
 	cfg.Icecast.Host = "localhost"
@@ -81,6 +108,47 @@ func DefaultConfig() *Config {
 	cfg.Stream.BufferSeconds = 5
 
 	return cfg
+}
+
+func (cfg *Config) Normalize() {
+	if cfg.Database.Driver == "" {
+		cfg.Database.Driver = "mariadb"
+	}
+	if cfg.Storage.Type == "" {
+		cfg.Storage.Type = "s3"
+	}
+	if cfg.Database.Path == "" {
+		if dataDir, err := DefaultDataDir(); err == nil {
+			cfg.Database.Path = filepath.Join(dataDir, "gostream.db")
+		}
+	}
+	if cfg.Storage.LocalPath == "" {
+		if dataDir, err := DefaultDataDir(); err == nil {
+			cfg.Storage.LocalPath = filepath.Join(dataDir, "media")
+		}
+	}
+	if cfg.Server.Timezone == "" {
+		cfg.Server.Timezone = "Europe/London"
+	}
+}
+
+func (cfg *Config) EffectiveTimezone() string {
+	if tz := os.Getenv("GOSTREAM_TIMEZONE"); tz != "" {
+		return tz
+	}
+	if cfg.Server.Timezone != "" {
+		return cfg.Server.Timezone
+	}
+	return "Europe/London"
+}
+
+func ApplyTimezone(cfg *Config) error {
+	loc, err := time.LoadLocation(cfg.EffectiveTimezone())
+	if err != nil {
+		return err
+	}
+	time.Local = loc
+	return nil
 }
 
 func getConfigPath() (string, error) {
@@ -111,10 +179,32 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{}
-	err = yaml.Unmarshal(data, cfg)
+	type legacyConfig struct {
+		S3 *struct {
+			Endpoint  string `yaml:"endpoint"`
+			Bucket    string `yaml:"bucket"`
+			Region    string `yaml:"region"`
+			AccessKey string `yaml:"access_key"`
+			SecretKey string `yaml:"secret_key"`
+			PathStyle bool   `yaml:"path_style"`
+		} `yaml:"s3"`
+		*Config `yaml:",inline"`
+	}
+	legacy := &legacyConfig{Config: cfg}
+	err = yaml.Unmarshal(data, legacy)
 	if err != nil {
 		return nil, err
 	}
+	if legacy.S3 != nil && legacy.S3.Bucket != "" && cfg.Storage.Type == "" {
+		cfg.Storage.Type = "s3"
+		cfg.Storage.S3.Endpoint = legacy.S3.Endpoint
+		cfg.Storage.S3.Bucket = legacy.S3.Bucket
+		cfg.Storage.S3.Region = legacy.S3.Region
+		cfg.Storage.S3.AccessKey = legacy.S3.AccessKey
+		cfg.Storage.S3.SecretKey = legacy.S3.SecretKey
+		cfg.Storage.S3.PathStyle = legacy.S3.PathStyle
+	}
+	cfg.Normalize()
 	return cfg, nil
 }
 

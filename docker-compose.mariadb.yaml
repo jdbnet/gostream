@@ -1,17 +1,11 @@
 services:
   gostream:
-    build: .
-    ports:
-      - "8080:8080"
-    volumes:
-      - gostream_config:/home/gostream/.config/gostream
     depends_on:
       db:
         condition: service_healthy
-    restart: unless-stopped
 
   db:
-    image: mariadb:10.11
+    image: mariadb:latest
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
       MYSQL_DATABASE: gostream
@@ -27,5 +21,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  gostream_config:
   mariadb_data:

@@ -6,12 +6,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"gostream/internal/api"
 	"gostream/internal/config"
 	"gostream/internal/db"
-	"gostream/internal/s3"
+	"gostream/internal/storage"
 	"gostream/internal/stream"
 )
 
@@ -20,17 +19,14 @@ var frontendFS embed.FS
 
 func main() {
 	log.Println("Starting GoStream...")
-	
-	// Force application timezone to Europe/London to align with the database
-	if loc, err := time.LoadLocation("Europe/London"); err == nil {
-		time.Local = loc
-	} else {
-		log.Printf("Warning: Failed to load timezone: %v", err)
-	}
 
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	if err := config.ApplyTimezone(cfg); err != nil {
+		log.Printf("Warning: Failed to load timezone: %v", err)
 	}
 
 	database, err := db.Connect(cfg)
@@ -40,28 +36,45 @@ func main() {
 		defer database.Close()
 	}
 
-	s3Client, err := s3.NewClient(cfg)
+	store, err := storage.New(cfg)
 	if err != nil {
-		log.Printf("Warning: Failed to initialize S3 client: %v", err)
+		log.Printf("Warning: Failed to initialize storage: %v", err)
+	} else if local, ok := store.(*storage.LocalBackend); ok && !local.Writable() {
+		log.Printf("Warning: local storage at %s is not writable", local.BasePath())
 	}
 
-	engine := stream.NewEngine(cfg, database, s3Client)
-	if database != nil && s3Client != nil {
+	engine := stream.NewEngine(cfg, database, store)
+	if database != nil && store != nil {
 		engine.Start()
 		defer engine.Stop()
 	} else {
-		log.Printf("Warning: Stream engine disabled until Database and S3 are configured.")
+		log.Printf("Warning: Stream engine disabled until database and storage are configured.")
 	}
 
-	server := api.NewServer(cfg, database, s3Client, engine, frontendFS)
-	
+	if database != nil && store != nil && cfg.Storage.Type == "local" && cfg.Storage.AutoScanOnStartup {
+		go func() {
+			result, err := storage.ScanLibrary(database, store)
+			if err != nil {
+				log.Printf("Startup library scan failed: %v", err)
+				return
+			}
+			if result.Imported > 0 || len(result.Errors) > 0 {
+				log.Printf("Startup library scan: imported %d, skipped %d, errors %d", result.Imported, result.Skipped, len(result.Errors))
+				for _, scanErr := range result.Errors {
+					log.Printf("Scan error: %s", scanErr)
+				}
+			}
+		}()
+	}
+
+	server := api.NewServer(cfg, database, store, engine, frontendFS)
+
 	go func() {
 		if err := server.Start(); err != nil {
 			log.Fatalf("Server failed: %v", err)
 		}
 	}()
 
-	// Wait for interrupt signal to gracefully shutdown the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit

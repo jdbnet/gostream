@@ -10,7 +10,7 @@ import (
 
 	"gostream/internal/config"
 	"gostream/internal/db"
-	"gostream/internal/s3"
+	"gostream/internal/storage"
 	"gostream/internal/stream"
 )
 
@@ -18,27 +18,27 @@ type Server struct {
 	router   *gin.Engine
 	cfg      *config.Config
 	database *db.DB
-	s3       *s3.Client
+	store    storage.Backend
 	engine   *stream.Engine
 }
 
-func NewServer(cfg *config.Config, database *db.DB, s3Client *s3.Client, engine *stream.Engine, frontendFS embed.FS) *Server {
+func NewServer(cfg *config.Config, database *db.DB, store storage.Backend, engine *stream.Engine, frontendFS embed.FS) *Server {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
-	
+
 	s := &Server{
 		router:   r,
 		cfg:      cfg,
 		database: database,
-		s3:       s3Client,
+		store:    store,
 		engine:   engine,
 	}
 
 	api := r.Group("/api")
 	api.Use(func(c *gin.Context) {
 		if c.Request.URL.Path != "/api/config" && c.Request.URL.Path != "/api/status" {
-			if s.database == nil || s.s3 == nil {
-				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Database or S3 not configured. Please save settings and restart."})
+			if s.database == nil || s.store == nil {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Database or storage not configured. Please save settings."})
 				return
 			}
 		}
@@ -78,14 +78,14 @@ func NewServer(cfg *config.Config, database *db.DB, s3Client *s3.Client, engine 
 
 		api.GET("/config", s.handleGetConfig)
 		api.POST("/config", s.handleSaveConfig)
+		api.POST("/storage/scan", s.handleStorageScan)
 	}
 
-	// Serve Vue frontend
 	staticFS, err := fs.Sub(frontendFS, "frontend/dist")
 	if err != nil {
 		panic(err)
 	}
-	
+
 	fileServer := http.FileServer(http.FS(staticFS))
 	r.NoRoute(func(c *gin.Context) {
 		path := c.Request.URL.Path

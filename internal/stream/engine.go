@@ -14,13 +14,13 @@ import (
 
 	"gostream/internal/config"
 	"gostream/internal/db"
-	"gostream/internal/s3"
+	"gostream/internal/storage"
 )
 
 type Engine struct {
 	cfg        *config.Config
 	database   *db.DB
-	s3Client   *s3.Client
+	storage    storage.Backend
 	
 	skipChan   chan struct{}
 	reloadChan chan struct{}
@@ -41,11 +41,11 @@ type Engine struct {
 	isReconnecting bool
 }
 
-func NewEngine(cfg *config.Config, database *db.DB, s3Client *s3.Client) *Engine {
+func NewEngine(cfg *config.Config, database *db.DB, store storage.Backend) *Engine {
 	return &Engine{
 		cfg:        cfg,
 		database:   database,
-		s3Client:   s3Client,
+		storage:    store,
 		skipChan:   make(chan struct{}, 1),
 		reloadChan: make(chan struct{}, 1),
 		stopChan:   make(chan struct{}, 1),
@@ -481,7 +481,7 @@ func (e *Engine) run() {
 						currentS3Stream = nextS3Stream
 						nextS3Stream = nil
 					} else {
-						stream, err := e.s3Client.GetStream(s3Key)
+						stream, err := e.storage.GetStream(s3Key)
 						if err != nil {
 							log.Printf("Error getting s3 stream: %v", err)
 							time.Sleep(1 * time.Second)
@@ -520,7 +520,7 @@ func (e *Engine) run() {
 							return
 						}
 						
-						stream, err := e.s3Client.GetStream(nKey)
+						stream, err := e.storage.GetStream(nKey)
 						if err == nil {
 							nextS3Stream = stream
 						}

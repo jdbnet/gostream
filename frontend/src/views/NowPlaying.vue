@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { SkipForward, Activity, Music, Play, Square } from 'lucide-vue-next'
+import { SkipForward, Activity, Music, Play, Square } from '@lucide/vue'
 
 const status = ref({
   is_connected: false,

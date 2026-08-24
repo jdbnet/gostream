@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { Menu } from 'lucide-vue-next'
+import { Menu } from '@lucide/vue'
 import Sidebar from './components/Sidebar.vue'
 
 const sidebarOpen = ref(false)

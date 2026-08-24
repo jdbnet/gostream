@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { Plus, Trash2, Search, GripVertical } from 'lucide-vue-next'
+import { Plus, Trash2, Search, GripVertical } from '@lucide/vue'
 
 const props = defineProps<{
   playlist: any

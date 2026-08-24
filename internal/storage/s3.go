@@ -1,7 +1,8 @@
-package s3
+package storage
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"mime/multipart"
 
@@ -12,26 +13,30 @@ import (
 	appconfig "gostream/internal/config"
 )
 
-type Client struct {
+type S3Backend struct {
 	client *s3.Client
 	bucket string
 }
 
-func NewClient(cfg *appconfig.Config) (*Client, error) {
+func NewS3(cfg *appconfig.Config) (*S3Backend, error) {
+	if cfg.Storage.S3.Bucket == "" {
+		return nil, fmt.Errorf("S3 bucket not configured")
+	}
+
 	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-		if cfg.S3.Endpoint != "" {
+		if cfg.Storage.S3.Endpoint != "" {
 			return aws.Endpoint{
 				PartitionID:   "aws",
-				URL:           cfg.S3.Endpoint,
-				SigningRegion: cfg.S3.Region,
+				URL:           cfg.Storage.S3.Endpoint,
+				SigningRegion: cfg.Storage.S3.Region,
 			}, nil
 		}
 		return aws.Endpoint{}, &aws.EndpointNotFoundError{}
 	})
 
 	awsCfg, err := config.LoadDefaultConfig(context.TODO(),
-		config.WithRegion(cfg.S3.Region),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(cfg.S3.AccessKey, cfg.S3.SecretKey, "")),
+		config.WithRegion(cfg.Storage.S3.Region),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(cfg.Storage.S3.AccessKey, cfg.Storage.S3.SecretKey, "")),
 		config.WithEndpointResolverWithOptions(customResolver),
 	)
 	if err != nil {
@@ -39,16 +44,16 @@ func NewClient(cfg *appconfig.Config) (*Client, error) {
 	}
 
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
-		o.UsePathStyle = cfg.S3.PathStyle
+		o.UsePathStyle = cfg.Storage.S3.PathStyle
 	})
 
-	return &Client{
+	return &S3Backend{
 		client: client,
-		bucket: cfg.S3.Bucket,
+		bucket: cfg.Storage.S3.Bucket,
 	}, nil
 }
 
-func (c *Client) UploadFile(key string, file multipart.File, contentType string) error {
+func (c *S3Backend) UploadFile(key string, file multipart.File, contentType string) error {
 	_, err := c.client.PutObject(context.TODO(), &s3.PutObjectInput{
 		Bucket:      aws.String(c.bucket),
 		Key:         aws.String(key),
@@ -58,7 +63,7 @@ func (c *Client) UploadFile(key string, file multipart.File, contentType string)
 	return err
 }
 
-func (c *Client) UploadLocalFile(key string, file io.Reader, contentType string) error {
+func (c *S3Backend) Upload(key string, file io.Reader, contentType string) error {
 	_, err := c.client.PutObject(context.TODO(), &s3.PutObjectInput{
 		Bucket:      aws.String(c.bucket),
 		Key:         aws.String(key),
@@ -68,7 +73,7 @@ func (c *Client) UploadLocalFile(key string, file io.Reader, contentType string)
 	return err
 }
 
-func (c *Client) DeleteFile(key string) error {
+func (c *S3Backend) Delete(key string) error {
 	_, err := c.client.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
 		Bucket: aws.String(c.bucket),
 		Key:    aws.String(key),
@@ -76,7 +81,7 @@ func (c *Client) DeleteFile(key string) error {
 	return err
 }
 
-func (c *Client) GetStream(key string) (io.ReadCloser, error) {
+func (c *S3Backend) GetStream(key string) (io.ReadCloser, error) {
 	out, err := c.client.GetObject(context.TODO(), &s3.GetObjectInput{
 		Bucket: aws.String(c.bucket),
 		Key:    aws.String(key),
@@ -85,4 +90,12 @@ func (c *Client) GetStream(key string) (io.ReadCloser, error) {
 		return nil, err
 	}
 	return out.Body, nil
+}
+
+func (c *S3Backend) Writable() bool {
+	return true
+}
+
+func (c *S3Backend) BasePath() string {
+	return ""
 }
