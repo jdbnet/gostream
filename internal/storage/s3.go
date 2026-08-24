@@ -45,6 +45,7 @@ func NewS3(cfg *appconfig.Config) (*S3Backend, error) {
 
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		o.UsePathStyle = cfg.Storage.S3.PathStyle
+		o.DisableLogOutputChecksumValidationSkipped = true
 	})
 
 	return &S3Backend{
