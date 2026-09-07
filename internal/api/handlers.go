@@ -17,7 +17,16 @@ import (
 // Tracks
 func (s *Server) handleGetTracks(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	limit := 50
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
 	offset := (page - 1) * limit
 	searchQuery := c.Query("q")
 

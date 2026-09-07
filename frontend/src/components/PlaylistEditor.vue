@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { Plus, Trash2, Search, GripVertical } from '@lucide/vue'
 
 const props = defineProps<{
@@ -9,18 +9,49 @@ const props = defineProps<{
 const playlistTracks = ref<any[]>([])
 const allTracks = ref<any[]>([])
 const search = ref('')
+const loadingLibrary = ref(false)
 
 const fetchPlaylistTracks = async () => {
   const res = await fetch(`/api/playlists/${props.playlist.id}/tracks`)
   if (res.ok) {
-    playlistTracks.value = await res.json()
+    const data = await res.json()
+    playlistTracks.value = Array.isArray(data) ? data : []
   }
 }
 
+const tracksFromResponse = (data: unknown): any[] => {
+  if (Array.isArray(data)) return data
+  if (data && typeof data === 'object' && Array.isArray((data as { tracks?: unknown }).tracks)) {
+    return (data as { tracks: any[] }).tracks
+  }
+  return []
+}
+
 const fetchAllTracks = async () => {
-  const res = await fetch('/api/tracks?limit=1000')
-  if (res.ok) {
-    allTracks.value = await res.json()
+  loadingLibrary.value = true
+  try {
+    const firstRes = await fetch('/api/tracks?page=1&limit=1000')
+    if (!firstRes.ok) return
+    const first = await firstRes.json()
+    const firstTracks = tracksFromResponse(first)
+    const total = typeof first?.total === 'number' ? first.total : firstTracks.length
+    const pageSize = firstTracks.length || 50
+
+    allTracks.value = firstTracks
+    if (firstTracks.length >= total) return
+
+    const remainingPages = Math.ceil(total / pageSize) - 1
+    const rest = await Promise.all(
+      Array.from({ length: remainingPages }, (_, i) =>
+        fetch(`/api/tracks?page=${i + 2}&limit=1000`).then(async (res) => {
+          if (!res.ok) return []
+          return tracksFromResponse(await res.json())
+        })
+      )
+    )
+    allTracks.value = firstTracks.concat(...rest)
+  } finally {
+    loadingLibrary.value = false
   }
 }
 
@@ -72,15 +103,14 @@ onMounted(() => {
 })
 
 const filteredTracks = computed(() => {
-  if (!search.value) return allTracks.value
+  const tracks = Array.isArray(allTracks.value) ? allTracks.value : []
+  if (!search.value) return tracks
   const s = search.value.toLowerCase()
-  return allTracks.value.filter(t => 
-    t.title.toLowerCase().includes(s) || 
-    t.artist.toLowerCase().includes(s)
+  return tracks.filter(t =>
+    (t.title || '').toLowerCase().includes(s) ||
+    (t.artist || '').toLowerCase().includes(s)
   )
 })
-
-import { computed } from 'vue'
 </script>
 
 <template>
@@ -142,13 +172,16 @@ import { computed } from 'vue'
           </div>
         </div>
         <div class="flex-1 overflow-y-auto p-4 space-y-2">
+          <div v-if="filteredTracks.length === 0" class="text-center text-textSecondary py-8">
+            {{ search ? 'No matching tracks.' : (loadingLibrary ? 'Loading library...' : 'Library is empty.') }}
+          </div>
           <div 
             v-for="track in filteredTracks" 
             :key="track.id"
             class="flex items-center justify-between p-3 bg-surface border border-border rounded-lg group hover:border-accent/30"
           >
             <div class="min-w-0">
-              <div class="text-white truncate font-medium">{{ track.title }}</div>
+              <div class="text-white truncate font-medium">{{ track.title || 'Untitled' }}</div>
               <div class="text-xs text-textSecondary truncate">{{ track.artist || 'Unknown' }}</div>
             </div>
             <button 
