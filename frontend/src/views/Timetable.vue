@@ -1,12 +1,45 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { Plus, Trash2, X } from '@lucide/vue'
 
 const playlists = ref<any[]>([])
 const timetable = ref<any[]>([])
+const timezone = ref('')
+const nowDay = ref(new Date().getDay())
+const nowMinute = ref(0)
+const nowLineRef = ref<HTMLElement | null>(null)
 
 const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const hours = Array.from({length: 24}, (_, i) => i)
+const weekdayIndex: Record<string, number> = {
+  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+}
+
+let nowTimer: ReturnType<typeof setInterval> | null = null
+
+const setNowLineRef = (el: Element | null) => {
+  nowLineRef.value = el as HTMLElement | null
+}
+
+const tickNow = () => {
+  const date = new Date()
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone.value || undefined,
+      weekday: 'short',
+      hour: 'numeric',
+      minute: 'numeric',
+      hourCycle: 'h23',
+    }).formatToParts(date)
+    const value = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find(p => p.type === type)?.value || '0'
+    nowDay.value = weekdayIndex[value('weekday')] ?? date.getDay()
+    nowMinute.value = (Number(value('hour')) % 24) * 60 + Number(value('minute'))
+  } catch {
+    nowDay.value = date.getDay()
+    nowMinute.value = date.getHours() * 60 + date.getMinutes()
+  }
+}
 
 const showModal = ref(false)
 const form = ref({
@@ -20,12 +53,18 @@ const form = ref({
 })
 
 const fetchData = async () => {
-  const [plRes, ttRes] = await Promise.all([
+  const [plRes, ttRes, cfgRes] = await Promise.all([
     fetch('/api/playlists'),
-    fetch('/api/timetable')
+    fetch('/api/timetable'),
+    fetch('/api/config')
   ])
   if (plRes.ok) playlists.value = await plRes.json()
   if (ttRes.ok) timetable.value = await ttRes.json()
+  if (cfgRes.ok) {
+    const cfg = await cfgRes.json()
+    timezone.value = cfg.server?.timezone || ''
+  }
+  tickNow()
 }
 
 const getEntriesForDay = (dayIndex: number) => {
@@ -105,7 +144,16 @@ const formatTime = (minutes: number) => {
   return `${h}:${m}`
 }
 
-onMounted(fetchData)
+onMounted(async () => {
+  await fetchData()
+  nowTimer = setInterval(tickNow, 15000)
+  await nextTick()
+  nowLineRef.value?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+})
+
+onUnmounted(() => {
+  if (nowTimer) clearInterval(nowTimer)
+})
 </script>
 
 <template>
@@ -123,7 +171,12 @@ onMounted(fetchData)
         <!-- Header -->
         <div class="flex border-b border-border sticky top-0 bg-surface z-20">
           <div class="w-16 shrink-0 border-r border-border"></div>
-          <div v-for="day in days" :key="day" class="flex-1 text-center py-3 font-medium text-textSecondary border-r border-border last:border-0">
+          <div
+            v-for="(day, dayIdx) in days"
+            :key="day"
+            class="flex-1 text-center py-3 font-medium border-r border-border last:border-0"
+            :class="dayIdx === nowDay ? 'text-accent' : 'text-textSecondary'"
+          >
             {{ day }}
           </div>
         </div>
@@ -140,7 +193,12 @@ onMounted(fetchData)
           </div>
 
           <!-- Day Columns -->
-          <div v-for="(day, dayIdx) in days" :key="day" class="flex-1 relative border-r border-border last:border-0">
+          <div
+            v-for="(day, dayIdx) in days"
+            :key="day"
+            class="flex-1 relative border-r border-border last:border-0"
+            :class="dayIdx === nowDay ? 'bg-accent/[0.06]' : ''"
+          >
             <!-- Hour slots (for clicking) -->
             <div 
               v-for="hour in hours" 
@@ -148,6 +206,22 @@ onMounted(fetchData)
               class="h-[60px] border-b border-border/50 hover:bg-white/[0.02] cursor-pointer transition-colors"
               @click="openAddModal(dayIdx, hour)"
             ></div>
+
+            <!-- Current time -->
+            <div
+              v-if="dayIdx === nowDay"
+              :ref="setNowLineRef"
+              class="absolute left-0 right-0 z-30 pointer-events-none"
+              :style="{ top: nowMinute + 'px' }"
+            >
+              <div class="relative flex items-center">
+                <div class="absolute -left-1.5 h-3 w-3 rounded-full bg-rose-500 ring-2 ring-background"></div>
+                <div class="h-0.5 w-full bg-rose-500"></div>
+                <div class="absolute right-1 top-1/2 -translate-y-1/2 rounded bg-background/90 px-1 font-mono text-[10px] font-medium text-rose-400">
+                  {{ formatTime(nowMinute) }}
+                </div>
+              </div>
+            </div>
 
             <!-- Scheduled Entries -->
             <div 
