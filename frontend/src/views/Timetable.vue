@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import type { ComponentPublicInstance } from 'vue'
 import { Plus, Trash2, X } from '@lucide/vue'
 
 const playlists = ref<any[]>([])
@@ -17,8 +18,8 @@ const weekdayIndex: Record<string, number> = {
 
 let nowTimer: ReturnType<typeof setInterval> | null = null
 
-const setNowLineRef = (el: Element | null) => {
-  nowLineRef.value = el as HTMLElement | null
+const setNowLineRef = (el: Element | ComponentPublicInstance | null) => {
+  nowLineRef.value = el instanceof HTMLElement ? el : null
 }
 
 const tickNow = () => {
