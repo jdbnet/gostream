@@ -13,6 +13,7 @@ let searchTimeout: any = null
 
 const editingTrackId = ref<number | null>(null)
 const editForm = ref({ title: '', artist: '' })
+const selectedPlaylist = ref('')
 
 const fetchTracks = async () => {
   const query = new URLSearchParams({
@@ -94,8 +95,6 @@ const saveTrack = async (id: number) => {
   }
 }
 
-
-
 onMounted(() => {
   fetchTracks()
   fetchPlaylists()
@@ -108,10 +107,22 @@ onMounted(() => {
       <h1 class="text-3xl font-bold">Tracks</h1>
     </div>
 
-    <TrackUploader 
-      endpoint="/api/tracks" 
-      label="Upload Track" 
-      :playlists="playlists"
+    <div class="glass rounded-xl border border-border p-4">
+      <label class="block text-sm font-medium text-textSecondary mb-2">Add uploads to playlist (optional)</label>
+      <select
+        v-model="selectedPlaylist"
+        class="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-white outline-none focus:border-accent/50 appearance-none"
+      >
+        <option value="">None</option>
+        <option v-for="p in playlists" :key="p.id" :value="String(p.id)">{{ p.name }}</option>
+      </select>
+      <p v-if="playlists.length === 0" class="text-xs text-textSecondary/60 mt-2">Create a playlist first to enable this option.</p>
+    </div>
+
+    <TrackUploader
+      endpoint="/api/tracks"
+      label="Upload Track"
+      :playlist-id="selectedPlaylist"
       @uploaded="fetchTracks"
     />
 
