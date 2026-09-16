@@ -28,6 +28,9 @@ type Config struct {
 	Storage struct {
 		Type              string `yaml:"type" json:"type"`
 		LocalPath         string `yaml:"local_path" json:"local_path"`
+		TracksPath        string `yaml:"tracks_path" json:"tracks_path"`
+		JinglesPath       string `yaml:"jingles_path" json:"jingles_path"`
+		ArtworkPath       string `yaml:"artwork_path" json:"artwork_path"`
 		AutoScanOnStartup bool   `yaml:"auto_scan_on_startup" json:"auto_scan_on_startup"`
 		S3                struct {
 			Endpoint  string `yaml:"endpoint" json:"endpoint"`
@@ -81,7 +84,11 @@ func DefaultConfig() *Config {
 	dataDir, err := DefaultDataDir()
 	if err == nil {
 		cfg.Database.Path = filepath.Join(dataDir, "gostream.db")
-		cfg.Storage.LocalPath = filepath.Join(dataDir, "media")
+		mediaDir := filepath.Join(dataDir, "media")
+		cfg.Storage.LocalPath = mediaDir
+		cfg.Storage.TracksPath = filepath.Join(mediaDir, "tracks")
+		cfg.Storage.JinglesPath = filepath.Join(mediaDir, "jingles")
+		cfg.Storage.ArtworkPath = filepath.Join(mediaDir, "artworks")
 	}
 
 	cfg.Storage.Type = "local"
@@ -125,6 +132,33 @@ func (cfg *Config) Normalize() {
 	if cfg.Storage.LocalPath == "" {
 		if dataDir, err := DefaultDataDir(); err == nil {
 			cfg.Storage.LocalPath = filepath.Join(dataDir, "media")
+		}
+	}
+	if cfg.Storage.TracksPath == "" {
+		if cfg.Storage.LocalPath != "" {
+			tracksSub := filepath.Join(cfg.Storage.LocalPath, "tracks")
+			if st, err := os.Stat(tracksSub); err == nil && st.IsDir() {
+				cfg.Storage.TracksPath = tracksSub
+			} else {
+				cfg.Storage.TracksPath = cfg.Storage.LocalPath
+			}
+		} else if dataDir, err := DefaultDataDir(); err == nil {
+			cfg.Storage.TracksPath = filepath.Join(dataDir, "media", "tracks")
+		}
+	}
+	if cfg.Storage.JinglesPath == "" && cfg.Storage.LocalPath != "" {
+		tracksUnderLocal := cfg.Storage.TracksPath == cfg.Storage.LocalPath ||
+			cfg.Storage.TracksPath == filepath.Join(cfg.Storage.LocalPath, "tracks")
+		if tracksUnderLocal {
+			jinglesSub := filepath.Join(cfg.Storage.LocalPath, "jingles")
+			if st, err := os.Stat(jinglesSub); err == nil && st.IsDir() {
+				cfg.Storage.JinglesPath = jinglesSub
+			}
+		}
+	}
+	if cfg.Storage.ArtworkPath == "" {
+		if dataDir, err := DefaultDataDir(); err == nil {
+			cfg.Storage.ArtworkPath = filepath.Join(dataDir, "media", "artworks")
 		}
 	}
 	if cfg.Server.Timezone == "" {

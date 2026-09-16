@@ -11,29 +11,67 @@ import (
 )
 
 type LocalBackend struct {
-	basePath string
-	writable bool
+	tracksPath      string
+	jinglesPath     string
+	artworkPath     string
+	tracksWritable  bool
+	jinglesWritable bool
 }
 
 func NewLocal(cfg *appconfig.Config) (*LocalBackend, error) {
-	basePath := cfg.Storage.LocalPath
-	if basePath == "" {
-		return nil, fmt.Errorf("local storage path not configured")
+	cfg.Normalize()
+
+	tracksPath := cfg.Storage.TracksPath
+	if tracksPath == "" {
+		return nil, fmt.Errorf("tracks path not configured")
 	}
 
-	for _, sub := range []string{"tracks", "jingles", "artworks"} {
-		if err := os.MkdirAll(filepath.Join(basePath, sub), 0755); err != nil {
-			return nil, fmt.Errorf("failed to create storage directory %s: %w", sub, err)
+	if err := ensurePath(tracksPath); err != nil {
+		return nil, fmt.Errorf("tracks path unavailable: %w", err)
+	}
+
+	jinglesPath := cfg.Storage.JinglesPath
+	if jinglesPath != "" {
+		if err := ensurePath(jinglesPath); err != nil {
+			return nil, fmt.Errorf("jingles path unavailable: %w", err)
 		}
 	}
 
-	backend := &LocalBackend{basePath: basePath}
-	backend.writable = backend.checkWritable()
+	artworkPath := cfg.Storage.ArtworkPath
+	if artworkPath != "" {
+		_ = os.MkdirAll(artworkPath, 0755)
+	}
+
+	backend := &LocalBackend{
+		tracksPath:  tracksPath,
+		jinglesPath: jinglesPath,
+		artworkPath: artworkPath,
+	}
+	backend.tracksWritable = dirWritable(tracksPath)
+	if jinglesPath != "" {
+		backend.jinglesWritable = dirWritable(jinglesPath)
+	}
 	return backend, nil
 }
 
-func (l *LocalBackend) checkWritable() bool {
-	testPath := filepath.Join(l.basePath, ".write_test")
+func ensurePath(path string) error {
+	if err := os.MkdirAll(path, 0755); err != nil {
+		if _, statErr := os.Stat(path); statErr != nil {
+			return err
+		}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", path)
+	}
+	return nil
+}
+
+func dirWritable(path string) bool {
+	testPath := filepath.Join(path, ".write_test")
 	if err := os.WriteFile(testPath, []byte("test"), 0644); err != nil {
 		return false
 	}
@@ -41,13 +79,12 @@ func (l *LocalBackend) checkWritable() bool {
 	return true
 }
 
-func (l *LocalBackend) resolveKey(key string) (string, error) {
-	cleanKey := filepath.ToSlash(key)
-	if strings.Contains(cleanKey, "..") {
+func safeJoin(base, rel string) (string, error) {
+	if strings.Contains(rel, "..") {
 		return "", fmt.Errorf("invalid storage key")
 	}
-	fullPath := filepath.Join(l.basePath, filepath.FromSlash(cleanKey))
-	absBase, err := filepath.Abs(l.basePath)
+	fullPath := filepath.Join(base, filepath.FromSlash(rel))
+	absBase, err := filepath.Abs(base)
 	if err != nil {
 		return "", err
 	}
@@ -61,9 +98,39 @@ func (l *LocalBackend) resolveKey(key string) (string, error) {
 	return absPath, nil
 }
 
+func (l *LocalBackend) resolveKey(key string) (string, error) {
+	cleanKey := filepath.ToSlash(key)
+	var base string
+	var rel string
+
+	switch {
+	case strings.HasPrefix(cleanKey, "tracks/"):
+		base = l.tracksPath
+		rel = strings.TrimPrefix(cleanKey, "tracks/")
+	case strings.HasPrefix(cleanKey, "jingles/"):
+		base = l.jinglesPath
+		rel = strings.TrimPrefix(cleanKey, "jingles/")
+	case strings.HasPrefix(cleanKey, "artworks/"):
+		base = l.artworkPath
+		rel = strings.TrimPrefix(cleanKey, "artworks/")
+	default:
+		return "", fmt.Errorf("invalid storage key")
+	}
+
+	if base == "" {
+		return "", fmt.Errorf("no path configured for key: %s", key)
+	}
+
+	return safeJoin(base, rel)
+}
+
 func (l *LocalBackend) Upload(key string, r io.Reader, contentType string) error {
-	if !l.writable {
-		return fmt.Errorf("local storage is not writable")
+	prefix := filepath.ToSlash(key)
+	if strings.HasPrefix(prefix, "tracks/") && !l.tracksWritable {
+		return fmt.Errorf("tracks path is not writable")
+	}
+	if strings.HasPrefix(prefix, "jingles/") && !l.jinglesWritable {
+		return fmt.Errorf("jingles path is not writable")
 	}
 
 	fullPath, err := l.resolveKey(key)
@@ -86,8 +153,12 @@ func (l *LocalBackend) Upload(key string, r io.Reader, contentType string) error
 }
 
 func (l *LocalBackend) Delete(key string) error {
-	if !l.writable {
-		return fmt.Errorf("local storage is not writable")
+	prefix := filepath.ToSlash(key)
+	if strings.HasPrefix(prefix, "tracks/") && !l.tracksWritable {
+		return fmt.Errorf("tracks path is not writable")
+	}
+	if strings.HasPrefix(prefix, "jingles/") && !l.jinglesWritable {
+		return fmt.Errorf("jingles path is not writable")
 	}
 
 	fullPath, err := l.resolveKey(key)
@@ -111,9 +182,29 @@ func (l *LocalBackend) GetStream(key string) (io.ReadCloser, error) {
 }
 
 func (l *LocalBackend) Writable() bool {
-	return l.writable
+	return l.tracksWritable
+}
+
+func (l *LocalBackend) TracksWritable() bool {
+	return l.tracksWritable
+}
+
+func (l *LocalBackend) JinglesWritable() bool {
+	return l.jinglesWritable
 }
 
 func (l *LocalBackend) BasePath() string {
-	return l.basePath
+	return l.tracksPath
+}
+
+func (l *LocalBackend) TracksPath() string {
+	return l.tracksPath
+}
+
+func (l *LocalBackend) JinglesPath() string {
+	return l.jinglesPath
+}
+
+func (l *LocalBackend) ArtworkPath() string {
+	return l.artworkPath
 }

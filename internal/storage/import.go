@@ -18,8 +18,8 @@ type TrackImportOptions struct {
 }
 
 func ProcessTrack(database *db.DB, backend Backend, srcPath string, opts TrackImportOptions) (*db.Track, error) {
-	if !backend.Writable() {
-		return nil, fmt.Errorf("storage is not writable")
+	if !tracksWritable(backend) {
+		return nil, fmt.Errorf("tracks path is not writable")
 	}
 
 	tmpDir, err := os.MkdirTemp("", "gostream_import")
@@ -118,9 +118,116 @@ func ProcessTrack(database *db.DB, backend Backend, srcPath string, opts TrackIm
 	return t, nil
 }
 
+func RegisterTrackFromFile(database *db.DB, backend Backend, srcPath, storageKey string) (*db.Track, error) {
+	title := ""
+	artist := ""
+	var trackDuration int
+	metaTitle, metaArtist, duration, metaErr := upload.ExtractMetadata(srcPath)
+	if metaErr == nil {
+		title = metaTitle
+		artist = metaArtist
+		trackDuration = duration
+	}
+
+	if title == "" {
+		title = filepath.Base(srcPath)
+		ext := filepath.Ext(title)
+		if ext != "" {
+			title = title[:len(title)-len(ext)]
+		}
+	}
+
+	if existingTrack, err := database.GetTrackByTitleAndArtist(title, artist); err == nil && existingTrack != nil {
+		return existingTrack, nil
+	}
+
+	stat, err := os.Stat(srcPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var artworkKey string
+    if backend.Writable() || localArtworkWritable(backend) {
+		tmpDir, err := os.MkdirTemp("", "gostream_artwork")
+		if err == nil {
+			defer os.RemoveAll(tmpDir)
+			artworkPath := filepath.Join(tmpDir, "artwork.jpg")
+			if err := upload.ExtractArtwork(srcPath, artworkPath); err == nil {
+				if artStat, err := os.Stat(artworkPath); err == nil && artStat.Size() > 0 {
+					if artFile, err := os.Open(artworkPath); err == nil {
+						key := fmt.Sprintf("artworks/%d_%s.jpg", time.Now().UnixNano(), filepath.Base(srcPath))
+						if err := backend.Upload(key, artFile, "image/jpeg"); err == nil {
+							artworkKey = key
+						}
+						artFile.Close()
+					}
+				}
+			}
+		}
+	}
+
+	t := &db.Track{
+		Title:           title,
+		Artist:          artist,
+		DurationSeconds: trackDuration,
+		FileSizeBytes:   stat.Size(),
+		S3Key:           storageKey,
+		ArtworkS3Key:    artworkKey,
+	}
+	if err := database.InsertTrack(t); err != nil {
+		return nil, err
+	}
+
+	return t, nil
+}
+
+func localArtworkWritable(backend Backend) bool {
+	local, ok := backend.(*LocalBackend)
+	if !ok || local.ArtworkPath() == "" {
+		return false
+	}
+	return dirWritable(local.ArtworkPath())
+}
+
+func tracksWritable(backend Backend) bool {
+	local, ok := backend.(*LocalBackend)
+	if !ok {
+		return backend.Writable()
+	}
+	return local.TracksWritable()
+}
+
+func jinglesWritable(backend Backend) bool {
+	local, ok := backend.(*LocalBackend)
+	if !ok {
+		return backend.Writable()
+	}
+	return local.JinglesWritable()
+}
+
+func RegisterJingleFromFile(database *db.DB, srcPath, storageKey, name string) (*db.Jingle, error) {
+	if name == "" {
+		name = filepath.Base(srcPath)
+		ext := filepath.Ext(name)
+		if ext != "" {
+			name = name[:len(name)-len(ext)]
+		}
+	}
+
+	j := &db.Jingle{
+		Name:  name,
+		S3Key: storageKey,
+	}
+	if err := database.InsertJingle(j); err != nil {
+		return nil, err
+	}
+
+	return j, nil
+}
+
 func ProcessJingle(database *db.DB, backend Backend, srcPath, storageKey, name string) (*db.Jingle, error) {
-	if !backend.Writable() {
-		return nil, fmt.Errorf("storage is not writable")
+	if !jinglesWritable(backend) {
+		return nil, fmt.Errorf("jingles path is not writable")
 	}
 
 	tmpDir, err := os.MkdirTemp("", "gostream_jingle_import")

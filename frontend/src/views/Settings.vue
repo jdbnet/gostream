@@ -153,9 +153,19 @@ onMounted(fetchConfig)
 
           <div v-if="config.storage.type === 'local'" class="space-y-6">
             <div class="space-y-2">
-              <label class="text-sm text-textSecondary">Local Path</label>
-              <input v-model="config.storage.local_path" type="text" class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50" />
-              <p class="text-xs text-textSecondary/60">Audio files are stored in tracks/, jingles/, and artworks/ subdirectories.</p>
+              <label class="text-sm text-textSecondary">Tracks Path</label>
+              <input v-model="config.storage.tracks_path" type="text" placeholder="/media" class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50" />
+              <p class="text-xs text-textSecondary/60">Directory to scan for music. Subfolders are included. Writable paths are normalized on scan; read-only mounts are imported as-is.</p>
+            </div>
+            <div class="space-y-2">
+              <label class="text-sm text-textSecondary">Jingles Path</label>
+              <input v-model="config.storage.jingles_path" type="text" placeholder="/jingles" class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50" />
+              <p class="text-xs text-textSecondary/60">Optional separate directory for jingles. Writable paths are normalized on scan; read-only mounts are imported as-is.</p>
+            </div>
+            <div class="space-y-2">
+              <label class="text-sm text-textSecondary">Artwork Path</label>
+              <input v-model="config.storage.artwork_path" type="text" class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50" />
+              <p class="text-xs text-textSecondary/60">Writable directory for extracted artwork during scans and uploads. Defaults to the data volume if unset.</p>
             </div>
             <div class="space-y-2 flex items-center">
               <input v-model="config.storage.auto_scan_on_startup" type="checkbox" id="autoScan" class="mr-2 accent-accent" />

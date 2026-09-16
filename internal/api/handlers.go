@@ -393,7 +393,7 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 		s.store = newStore
 		fmt.Println("Storage reconnected successfully")
 		if local, ok := newStore.(*storage.LocalBackend); ok && !local.Writable() {
-			fmt.Println("Warning: local storage is not writable")
+			fmt.Printf("Warning: tracks path %s is read-only; uploads are disabled\n", local.TracksPath())
 		}
 	} else {
 		fmt.Printf("Storage reconnection failed: %v\n", err)

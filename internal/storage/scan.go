@@ -21,15 +21,14 @@ func ScanLibrary(database *db.DB, backend Backend) (*ScanResult, error) {
 		return nil, fmt.Errorf("scan is only supported for local storage")
 	}
 
-	if !backend.Writable() {
-		return nil, fmt.Errorf("local storage is not writable")
-	}
-
 	result := &ScanResult{}
 
-	scanDir := func(subdir string, process func(path, key string) error) {
-		dir := filepath.Join(local.BasePath(), subdir)
-		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	scanRoot := func(root, keyPrefix string, register func(path, key string) error) {
+		if root == "" {
+			return
+		}
+
+		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				result.Errors = append(result.Errors, err.Error())
 				return nil
@@ -41,12 +40,12 @@ func ScanLibrary(database *db.DB, backend Backend) (*ScanResult, error) {
 				return nil
 			}
 
-			rel, err := filepath.Rel(local.BasePath(), path)
+			rel, err := filepath.Rel(root, path)
 			if err != nil {
 				result.Errors = append(result.Errors, err.Error())
 				return nil
 			}
-			key := filepath.ToSlash(rel)
+			key := keyPrefix + "/" + filepath.ToSlash(rel)
 
 			exists, err := database.StorageKeyExists(key)
 			if err != nil {
@@ -58,7 +57,7 @@ func ScanLibrary(database *db.DB, backend Backend) (*ScanResult, error) {
 				return nil
 			}
 
-			if err := process(path, key); err != nil {
+			if err := register(path, key); err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", key, err))
 			} else {
 				result.Imported++
@@ -67,13 +66,21 @@ func ScanLibrary(database *db.DB, backend Backend) (*ScanResult, error) {
 		})
 	}
 
-	scanDir("tracks", func(path, key string) error {
-		_, err := ProcessTrack(database, backend, path, TrackImportOptions{StorageKey: key})
+	scanRoot(local.TracksPath(), "tracks", func(path, key string) error {
+		if local.TracksWritable() {
+			_, err := ProcessTrack(database, backend, path, TrackImportOptions{StorageKey: key})
+			return err
+		}
+		_, err := RegisterTrackFromFile(database, backend, path, key)
 		return err
 	})
 
-	scanDir("jingles", func(path, key string) error {
-		_, err := ProcessJingle(database, backend, path, key, "")
+	scanRoot(local.JinglesPath(), "jingles", func(path, key string) error {
+		if local.JinglesWritable() {
+			_, err := ProcessJingle(database, backend, path, key, "")
+			return err
+		}
+		_, err := RegisterJingleFromFile(database, path, key, "")
 		return err
 	})
 

@@ -40,7 +40,7 @@ func main() {
 	if err != nil {
 		log.Printf("Warning: Failed to initialize storage: %v", err)
 	} else if local, ok := store.(*storage.LocalBackend); ok && !local.Writable() {
-		log.Printf("Warning: local storage at %s is not writable", local.BasePath())
+		log.Printf("Warning: tracks path %s is read-only; uploads are disabled but scanning and playback will work", local.TracksPath())
 	}
 
 	engine := stream.NewEngine(cfg, database, store)
