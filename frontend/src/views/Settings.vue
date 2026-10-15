@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { Save, AlertCircle, CheckCircle2, FolderSearch, RefreshCw } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { scanStatus, startRefresh, startScan } from '../lib/api'
@@ -10,6 +10,12 @@ const saved = ref(false)
 const error = ref('')
 const scanResult = ref<ScanProgress | null>(null)
 const scanning = ref(false)
+
+const scanPercent = computed(() => {
+  const scan = scanResult.value
+  if (!scan || !scan.total) return scan?.running ? 8 : 100
+  return Math.min(100, Math.round((scan.seen / scan.total) * 100))
+})
 let pollTimer: ReturnType<typeof setTimeout> | null = null
 
 const fetchConfig = async () => {
@@ -225,9 +231,15 @@ onUnmounted(() => {
                 <RefreshCw class="w-5 h-5" />
                 <span>Refresh metadata</span>
               </button>
-              <p v-if="scanResult" class="text-sm text-textSecondary">
-                {{ scanResult.phase }} · imported {{ scanResult.imported || 0 }}, updated {{ scanResult.updated || 0 }}, removed {{ scanResult.removed || 0 }}, skipped {{ scanResult.skipped || 0 }}
-                <span v-if="scanResult.total"> · {{ scanResult.seen }}/{{ scanResult.total }}</span>
+            </div>
+            <div v-if="scanResult" class="space-y-2">
+              <div class="h-1.5 overflow-hidden rounded-full bg-white/10">
+                <div class="h-full rounded-full bg-accent transition-all" :style="{ width: scanPercent + '%' }"></div>
+              </div>
+              <p class="truncate text-xs text-textSecondary" :title="scanResult.phase">{{ scanResult.phase }}</p>
+              <p class="text-xs text-textSecondary">
+                <span v-if="scanResult.total">{{ scanResult.seen }}/{{ scanResult.total }} · </span>
+                imported {{ scanResult.imported || 0 }}, updated {{ scanResult.updated || 0 }}, removed {{ scanResult.removed || 0 }}, skipped {{ scanResult.skipped || 0 }}
                 <span v-if="scanResult.errors?.length">, {{ scanResult.errors.length }} errors</span>
               </p>
             </div>

@@ -61,24 +61,23 @@ const onNavigate = () => {
     </div>
 
     <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-      <router-link
-        v-for="item in navItems"
-        :key="item.path"
-        :to="item.path"
-        class="flex items-center rounded-lg px-3 py-2.5 text-sm transition-colors"
-        :class="isActive(item.path) ? 'bg-accent/15 font-medium text-accent' : 'text-textSecondary hover:bg-white/5 hover:text-textPrimary'"
-        @click="onNavigate"
-      >
-        <component :is="item.icon" class="mr-3 h-5 w-5" />
-        {{ item.name }}
-      </router-link>
-
-      <div v-if="libraryTabs" class="ml-4 mt-1 space-y-1 border-l border-border pl-3">
-        <router-link to="/library" class="block rounded-md px-3 py-1.5 text-sm text-textSecondary hover:text-textPrimary" exact-active-class="text-accent">Tracks</router-link>
-        <router-link to="/library/artists" class="block rounded-md px-3 py-1.5 text-sm text-textSecondary hover:text-textPrimary" active-class="text-accent">Artists</router-link>
-        <router-link to="/library/albums" class="block rounded-md px-3 py-1.5 text-sm text-textSecondary hover:text-textPrimary" active-class="text-accent">Albums</router-link>
-        <router-link to="/library/genres" class="block rounded-md px-3 py-1.5 text-sm text-textSecondary hover:text-textPrimary" active-class="text-accent">Genres</router-link>
-      </div>
+      <template v-for="item in navItems" :key="item.path">
+        <router-link
+          :to="item.path"
+          class="flex items-center rounded-lg px-3 py-2.5 text-sm transition-colors"
+          :class="isActive(item.path) ? 'bg-accent/15 font-medium text-accent' : 'text-textSecondary hover:bg-white/5 hover:text-textPrimary'"
+          @click="onNavigate"
+        >
+          <component :is="item.icon" class="mr-3 h-5 w-5" />
+          {{ item.name }}
+        </router-link>
+        <div v-if="item.path === '/library' && libraryTabs" class="ml-4 space-y-1 border-l border-border pl-3">
+          <router-link to="/library" class="block rounded-md px-3 py-1.5 text-sm text-textSecondary hover:text-textPrimary" exact-active-class="text-accent">Tracks</router-link>
+          <router-link to="/library/artists" class="block rounded-md px-3 py-1.5 text-sm text-textSecondary hover:text-textPrimary" active-class="text-accent">Artists</router-link>
+          <router-link to="/library/albums" class="block rounded-md px-3 py-1.5 text-sm text-textSecondary hover:text-textPrimary" active-class="text-accent">Albums</router-link>
+          <router-link to="/library/genres" class="block rounded-md px-3 py-1.5 text-sm text-textSecondary hover:text-textPrimary" active-class="text-accent">Genres</router-link>
+        </div>
+      </template>
     </nav>
   </aside>
 </template>

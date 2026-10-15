@@ -66,6 +66,7 @@ func NewServer(cfg *config.Config, database *db.DB, store storage.Backend, engin
 
 		api.GET("/jingles", s.handleGetJingles)
 		api.POST("/jingles", s.handleUploadJingle)
+		api.GET("/jingles/:id/audio", s.handleStreamJingle)
 		api.PUT("/jingles/:id", s.handleUpdateJingle)
 		api.DELETE("/jingles/:id", s.handleDeleteJingle)
 

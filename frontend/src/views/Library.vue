@@ -396,9 +396,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
     </div>
 
     <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface">
-      <div class="grid grid-cols-[2.5rem_1fr_1fr_1fr_7rem_4rem_4.5rem] gap-2 border-b border-border px-3 py-2 text-xs uppercase tracking-wide text-textSecondary max-lg:hidden">
+      <div class="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-2 border-b border-border px-3 py-2 text-xs uppercase tracking-wide text-textSecondary lg:grid-cols-[2.5rem_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.8fr)_4.5rem_4rem]">
         <span></span>
-        <button v-for="column in columns" :key="column.key" type="button" class="truncate text-left hover:text-textPrimary" @click="toggleSort(column.key)">
+        <button
+          v-for="(column, index) in columns"
+          :key="column.key"
+          type="button"
+          class="min-w-0 truncate text-left hover:text-textPrimary"
+          :class="index === 0 ? '' : 'hidden lg:block'"
+          @click="toggleSort(column.key)"
+        >
           {{ column.label }}
           <span v-if="sort === column.key">{{ dir === 'asc' ? '↑' : '↓' }}</span>
         </button>
@@ -409,7 +416,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
           <div
             v-for="row in virtualRows"
             :key="String(row.key)"
-            class="absolute left-0 top-0 grid w-full grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-2 border-b border-border/70 px-3 lg:grid-cols-[2.5rem_1fr_1fr_1fr_7rem_4rem_4.5rem]"
+            class="absolute left-0 top-0 grid w-full grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-2 border-b border-border/70 px-3 lg:grid-cols-[2.5rem_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.8fr)_4.5rem_4rem]"
             :class="[rowSelected(tracks[row.index].id) ? 'bg-accent/10' : 'hover:bg-white/[0.03]', cursor === row.index ? 'outline outline-1 outline-accent/40' : '']"
             :style="{ height: `${row.size}px`, transform: `translateY(${row.start}px)` }"
             @click="onRowClick(row.index, $event)"
@@ -417,13 +424,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
             <img v-if="tracks[row.index].artwork_s3_key" :src="artworkUrl(tracks[row.index].artwork_s3_key)" alt="" class="h-9 w-9 rounded object-cover" />
             <span v-else class="flex h-9 w-9 items-center justify-center rounded bg-white/5"><Music class="h-4 w-4 text-textSecondary" /></span>
             <div class="min-w-0 lg:contents">
-              <p class="truncate text-sm font-medium">
-                {{ tracks[row.index].title }}
-                <button type="button" class="ml-2 text-xs text-accent" @click.stop="playNext(tracks[row.index].id)">Play next</button>
-              </p>
-              <p class="truncate text-sm text-textSecondary lg:text-textPrimary">{{ tracks[row.index].artist || 'Unknown artist' }}</p>
-              <p class="hidden truncate text-sm text-textSecondary lg:block">{{ tracks[row.index].album }}</p>
-              <p class="hidden truncate text-sm text-textSecondary lg:block">{{ tracks[row.index].genre }}</p>
+              <div class="flex min-w-0 items-center gap-2">
+                <p class="min-w-0 flex-1 truncate text-sm font-medium">{{ tracks[row.index].title }}</p>
+                <button type="button" class="shrink-0 text-xs text-accent" @click.stop="playNext(tracks[row.index].id)">Play next</button>
+              </div>
+              <p class="min-w-0 truncate text-sm text-textSecondary lg:text-textPrimary">{{ tracks[row.index].artist || 'Unknown artist' }}</p>
+              <p class="hidden min-w-0 truncate text-sm text-textSecondary lg:block">{{ tracks[row.index].album }}</p>
+              <p class="hidden min-w-0 truncate text-sm text-textSecondary lg:block">{{ tracks[row.index].genre }}</p>
               <p class="hidden text-sm text-textSecondary lg:block">{{ tracks[row.index].year || '' }}</p>
               <p class="hidden text-sm text-textSecondary lg:block">{{ formatDuration(tracks[row.index].duration_seconds) }}</p>
             </div>

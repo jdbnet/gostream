@@ -228,8 +228,8 @@ onUnmounted(() => {
             <div 
               v-for="entry in getEntriesForDay(dayIdx)" 
               :key="entry.id"
-              class="absolute left-1 right-1 rounded-md bg-accent/20 border border-accent/50 hover:bg-accent/30 cursor-pointer overflow-hidden transition-colors shadow-lg group backdrop-blur-sm"
-              :style="{ top: entry.start_minute + 'px', height: (entry.end_minute - entry.start_minute) + 'px' }"
+              class="absolute left-1 right-1 cursor-pointer overflow-hidden rounded-md border border-background bg-accent/20 shadow-lg backdrop-blur-sm transition-colors hover:bg-accent/30"
+              :style="{ top: (entry.start_minute + 1) + 'px', height: Math.max(entry.end_minute - entry.start_minute - 2, 8) + 'px' }"
               @click.stop="editEntry(entry)"
             >
               <div class="p-2 h-full flex flex-col">

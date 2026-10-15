@@ -161,6 +161,22 @@ func (s *Server) handleUploadJingle(c *gin.Context) {
 	c.JSON(http.StatusOK, j)
 }
 
+func (s *Server) handleStreamJingle(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	j, err := s.database.GetJingle(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "jingle not found"})
+		return
+	}
+	reader, err := s.store.GetStream(j.S3Key)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	defer reader.Close()
+	c.DataFromReader(http.StatusOK, -1, "audio/mpeg", reader, nil)
+}
+
 func (s *Server) handleDeleteJingle(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
 	j, err := s.database.GetJingle(id)
