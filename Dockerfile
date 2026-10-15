@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Build stage 2: Go
-FROM golang:1.26-alpine AS go-builder
+FROM golang:1.27.1-alpine AS go-builder
 WORKDIR /app
 # Install dependencies
 RUN apk add --no-cache gcc musl-dev
@@ -20,7 +20,7 @@ COPY --from=frontend-builder /app/dist ./frontend/dist
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o gostream main.go
 
 # Runtime stage
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 # Install ffmpeg for normalisation, ca-certificates for S3 HTTPS, and gosu for entrypoint user drop
 RUN apt-get update && apt-get install -y ffmpeg ca-certificates gosu && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
