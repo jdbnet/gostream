@@ -32,16 +32,15 @@ func ProcessTrack(database *db.DB, backend Backend, srcPath string, opts TrackIm
 
 	title := opts.Title
 	artist := opts.Artist
-	var trackDuration int
-	metaTitle, metaArtist, duration, metaErr := upload.ExtractMetadata(srcPath)
-	if metaErr == nil {
-		if title == "" && metaTitle != "" {
-			title = metaTitle
+	var meta upload.Metadata
+	if probed, metaErr := upload.ExtractMetadata(srcPath); metaErr == nil {
+		meta = probed
+		if title == "" && meta.Title != "" {
+			title = meta.Title
 		}
-		if artist == "" && metaArtist != "" {
-			artist = metaArtist
+		if artist == "" && meta.Artist != "" {
+			artist = meta.Artist
 		}
-		trackDuration = duration
 	}
 
 	if title == "" {
@@ -98,14 +97,7 @@ func ProcessTrack(database *db.DB, backend Backend, srcPath string, opts TrackIm
 		}
 	}
 
-	t := &db.Track{
-		Title:           title,
-		Artist:          artist,
-		DurationSeconds: trackDuration,
-		FileSizeBytes:   stat.Size(),
-		S3Key:           storageKey,
-		ArtworkS3Key:    artworkKey,
-	}
+	t := trackFromMeta(title, artist, meta, stat, storageKey, artworkKey)
 	if err := database.InsertTrack(t); err != nil {
 		return nil, err
 	}
@@ -121,12 +113,11 @@ func ProcessTrack(database *db.DB, backend Backend, srcPath string, opts TrackIm
 func RegisterTrackFromFile(database *db.DB, backend Backend, srcPath, storageKey string) (*db.Track, error) {
 	title := ""
 	artist := ""
-	var trackDuration int
-	metaTitle, metaArtist, duration, metaErr := upload.ExtractMetadata(srcPath)
-	if metaErr == nil {
-		title = metaTitle
-		artist = metaArtist
-		trackDuration = duration
+	var meta upload.Metadata
+	if probed, metaErr := upload.ExtractMetadata(srcPath); metaErr == nil {
+		meta = probed
+		title = meta.Title
+		artist = meta.Artist
 	}
 
 	if title == "" {
@@ -147,7 +138,7 @@ func RegisterTrackFromFile(database *db.DB, backend Backend, srcPath, storageKey
 	}
 
 	var artworkKey string
-    if backend.Writable() || localArtworkWritable(backend) {
+	if backend.Writable() || localArtworkWritable(backend) {
 		tmpDir, err := os.MkdirTemp("", "gostream_artwork")
 		if err == nil {
 			defer os.RemoveAll(tmpDir)
@@ -166,19 +157,33 @@ func RegisterTrackFromFile(database *db.DB, backend Backend, srcPath, storageKey
 		}
 	}
 
-	t := &db.Track{
-		Title:           title,
-		Artist:          artist,
-		DurationSeconds: trackDuration,
-		FileSizeBytes:   stat.Size(),
-		S3Key:           storageKey,
-		ArtworkS3Key:    artworkKey,
-	}
+	t := trackFromMeta(title, artist, meta, stat, storageKey, artworkKey)
 	if err := database.InsertTrack(t); err != nil {
 		return nil, err
 	}
 
 	return t, nil
+}
+
+func trackFromMeta(title, artist string, meta upload.Metadata, stat os.FileInfo, storageKey, artworkKey string) *db.Track {
+	mtime := stat.ModTime()
+	return &db.Track{
+		Title:           title,
+		Artist:          artist,
+		Album:           meta.Album,
+		AlbumArtist:     meta.AlbumArtist,
+		Genre:           meta.Genre,
+		Year:            meta.Year,
+		TrackNumber:     meta.TrackNumber,
+		DiscNumber:      meta.DiscNumber,
+		DurationSeconds: meta.DurationSeconds,
+		Bitrate:         meta.Bitrate,
+		SampleRate:      meta.SampleRate,
+		FileSizeBytes:   stat.Size(),
+		FileMtime:       &mtime,
+		S3Key:           storageKey,
+		ArtworkS3Key:    artworkKey,
+	}
 }
 
 func localArtworkWritable(backend Backend) bool {

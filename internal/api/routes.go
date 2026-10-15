@@ -20,6 +20,7 @@ type Server struct {
 	database *db.DB
 	store    storage.Backend
 	engine   *stream.Engine
+	scans    scanJob
 }
 
 func NewServer(cfg *config.Config, database *db.DB, store storage.Backend, engine *stream.Engine, frontendFS embed.FS) *Server {
@@ -57,6 +58,12 @@ func NewServer(cfg *config.Config, database *db.DB, store storage.Backend, engin
 		api.PUT("/tracks/:id", s.handleUpdateTrack)
 		api.DELETE("/tracks/:id", s.handleDeleteTrack)
 
+		api.GET("/library/tracks", s.handleLibraryTracks)
+		api.GET("/library/artists", s.handleLibraryArtists)
+		api.GET("/library/albums", s.handleLibraryAlbums)
+		api.GET("/library/genres", s.handleLibraryGenres)
+		api.POST("/library/tracks/ids", s.handleLibraryTrackIDs)
+
 		api.GET("/jingles", s.handleGetJingles)
 		api.POST("/jingles", s.handleUploadJingle)
 		api.PUT("/jingles/:id", s.handleUpdateJingle)
@@ -68,6 +75,9 @@ func NewServer(cfg *config.Config, database *db.DB, store storage.Backend, engin
 		api.DELETE("/playlists/:id", s.handleDeletePlaylist)
 		api.GET("/playlists/:id/tracks", s.handleGetPlaylistTracks)
 		api.POST("/playlists/:id/tracks", s.handleAddPlaylistTrack)
+		api.POST("/playlists/:id/tracks/bulk", s.handleBulkAddPlaylistTracks)
+		api.DELETE("/playlists/:id/tracks", s.handleBulkRemovePlaylistTracks)
+		api.PUT("/playlists/:id/tracks/order", s.handleReorderPlaylistTracks)
 		api.DELETE("/playlists/:id/tracks/:trackId", s.handleRemovePlaylistTrack)
 
 		api.GET("/timetable", s.handleGetTimetable)
@@ -79,6 +89,8 @@ func NewServer(cfg *config.Config, database *db.DB, store storage.Backend, engin
 		api.GET("/config", s.handleGetConfig)
 		api.POST("/config", s.handleSaveConfig)
 		api.POST("/storage/scan", s.handleStorageScan)
+		api.GET("/storage/scan", s.handleStorageScanStatus)
+		api.POST("/storage/refresh", s.handleRefreshMetadata)
 	}
 
 	staticFS, err := fs.Sub(frontendFS, "frontend/dist")
@@ -116,6 +128,10 @@ func NewServer(cfg *config.Config, database *db.DB, store storage.Backend, engin
 
 func (s *Server) Start() error {
 	return s.router.Run(fmt.Sprintf(":%d", s.cfg.Server.Port))
+}
+
+func (s *Server) StartLibraryScan() {
+	s.startLibraryJob(false)
 }
 
 func (s *Server) handleStatus(c *gin.Context) {

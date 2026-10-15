@@ -3,12 +3,23 @@ package db
 const mysqlSchema = `
 CREATE TABLE IF NOT EXISTS tracks (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  title VARCHAR(255) NOT NULL,
-  artist VARCHAR(255),
+  title VARCHAR(512) NOT NULL,
+  artist VARCHAR(512),
+  album VARCHAR(512) DEFAULT '',
+  album_artist VARCHAR(512) DEFAULT '',
+  genre VARCHAR(255) DEFAULT '',
+  year INT DEFAULT 0,
+  track_number INT DEFAULT 0,
+  disc_number INT DEFAULT 0,
   duration_seconds INT,
+  bitrate INT DEFAULT 0,
+  sample_rate INT DEFAULT 0,
   file_size_bytes BIGINT,
-  s3_key VARCHAR(512) NOT NULL,
+  file_mtime DATETIME NULL,
+  s3_key VARCHAR(1024) NOT NULL,
+  artwork_s3_key VARCHAR(1024) DEFAULT '',
   uploaded_at DATETIME DEFAULT NOW(),
+  date_added DATETIME DEFAULT NOW(),
   play_count INT DEFAULT 0
 );
 
@@ -23,7 +34,12 @@ CREATE TABLE IF NOT EXISTS playlists (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   is_active BOOLEAN DEFAULT FALSE,
-  created_at DATETIME DEFAULT NOW()
+  created_at DATETIME DEFAULT NOW(),
+  kind VARCHAR(32) DEFAULT 'manual',
+  rules TEXT DEFAULT '',
+  playback_mode VARCHAR(32) DEFAULT 'shuffle',
+  artist_separation INT DEFAULT 5,
+  track_repeat_hours INT DEFAULT 4
 );
 
 CREATE TABLE IF NOT EXISTS playlist_tracks (
@@ -47,5 +63,10 @@ CREATE TABLE IF NOT EXISTS timetable (
   start_minute INT,
   end_minute INT,
   FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INT PRIMARY KEY,
+  applied_at DATETIME DEFAULT NOW()
 );
 `

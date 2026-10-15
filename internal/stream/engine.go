@@ -18,37 +18,43 @@ import (
 )
 
 type Engine struct {
-	cfg        *config.Config
-	database   *db.DB
-	storage    storage.Backend
-	
-	skipChan   chan struct{}
-	reloadChan chan struct{}
-	stopChan   chan struct{}
+	cfg      *config.Config
+	database *db.DB
+	storage  storage.Backend
+
+	skipChan           chan struct{}
+	reloadChan         chan struct{}
+	stopChan           chan struct{}
 	updatePlaylistChan chan struct{}
 	requestChan        chan db.Track
-	
-	mu             sync.RWMutex
+
+	mu sync.RWMutex
 	// internal state
-	activePlaylist []db.Track
-	requestedTracks []db.Track
+	activePlaylist    []db.Track
+	requestedTracks   []db.Track
 	currentPlaylistID int
-	jingles        []db.Jingle
-	playCount      int
-	currentTrack   *db.Track // For status API
-	currentJingle  *db.Jingle // For status API
-	isConnected    bool
-	isReconnecting bool
+	lastPosition      int
+	playbackMode      string
+	playlistKind      string
+	playlistRules     string
+	artistSeparation  int
+	trackRepeatHours  int
+	jingles           []db.Jingle
+	playCount         int
+	currentTrack      *db.Track  // For status API
+	currentJingle     *db.Jingle // For status API
+	isConnected       bool
+	isReconnecting    bool
 }
 
 func NewEngine(cfg *config.Config, database *db.DB, store storage.Backend) *Engine {
 	return &Engine{
-		cfg:        cfg,
-		database:   database,
-		storage:    store,
-		skipChan:   make(chan struct{}, 1),
-		reloadChan: make(chan struct{}, 1),
-		stopChan:   make(chan struct{}, 1),
+		cfg:                cfg,
+		database:           database,
+		storage:            store,
+		skipChan:           make(chan struct{}, 1),
+		reloadChan:         make(chan struct{}, 1),
+		stopChan:           make(chan struct{}, 1),
 		updatePlaylistChan: make(chan struct{}, 1),
 		requestChan:        make(chan db.Track, 50),
 	}
@@ -106,17 +112,18 @@ type StreamStatus struct {
 	CurrentTrack   *db.Track  `json:"current_track"`
 	CurrentJingle  *db.Jingle `json:"current_jingle"`
 	UpcomingTracks []db.Track `json:"upcoming_tracks"`
+	UpNext         []db.Track `json:"up_next"`
 }
 
 func (e *Engine) Status() StreamStatus {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	
+
 	upcoming := make([]db.Track, 0, 3)
 	for i := 0; i < len(e.requestedTracks) && len(upcoming) < 3; i++ {
 		upcoming = append(upcoming, e.requestedTracks[i])
 	}
-	
+
 	for i := 0; i < len(e.activePlaylist) && len(upcoming) < 3; i++ {
 		upcoming = append(upcoming, e.activePlaylist[i])
 	}
@@ -127,7 +134,36 @@ func (e *Engine) Status() StreamStatus {
 		CurrentTrack:   e.currentTrack,
 		CurrentJingle:  e.currentJingle,
 		UpcomingTracks: upcoming,
+		UpNext:         upcoming,
 	}
+}
+
+func (e *Engine) ForgetTracks(ids []int) {
+	if len(ids) == 0 {
+		return
+	}
+	drop := make(map[int]struct{}, len(ids))
+	for _, id := range ids {
+		drop[id] = struct{}{}
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.activePlaylist = dropTracks(e.activePlaylist, drop)
+	e.requestedTracks = dropTracks(e.requestedTracks, drop)
+}
+
+func dropTracks(tracks []db.Track, drop map[int]struct{}) []db.Track {
+	if len(tracks) == 0 {
+		return tracks
+	}
+	kept := tracks[:0]
+	for _, track := range tracks {
+		if _, ok := drop[track.ID]; ok {
+			continue
+		}
+		kept = append(kept, track)
+	}
+	return kept
 }
 
 func (e *Engine) evaluateTimetable() int {
@@ -139,7 +175,7 @@ func (e *Engine) evaluateTimetable() int {
 	now := time.Now()
 	dayOfWeek := int(now.Weekday())
 	currentMinute := now.Hour()*60 + now.Minute()
-	
+
 	entries, err := e.database.GetTimetable()
 	if err == nil {
 		for _, entry := range entries {
@@ -148,7 +184,7 @@ func (e *Engine) evaluateTimetable() int {
 			}
 		}
 	}
-	
+
 	return 0
 }
 
@@ -161,15 +197,17 @@ func (e *Engine) CheckTimetable() {
 
 func (e *Engine) loadMedia(forceClear bool) {
 	targetID := e.evaluateTimetable()
-	
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	if forceClear || targetID != e.currentPlaylistID {
 		e.activePlaylist = []db.Track{}
 		e.currentPlaylistID = targetID
+		e.lastPosition = -1
+		e.loadPlaylistMetaLocked()
 	}
-	
+
 	e.replenishPlaylist(10)
 
 	// load jingles
@@ -177,57 +215,129 @@ func (e *Engine) loadMedia(forceClear bool) {
 	e.jingles = jingles
 }
 
+func (e *Engine) loadPlaylistMetaLocked() {
+	e.playbackMode = "shuffle"
+	e.playlistKind = "manual"
+	e.playlistRules = ""
+	e.artistSeparation = 5
+	e.trackRepeatHours = 4
+	if e.database == nil || e.currentPlaylistID <= 0 {
+		return
+	}
+	playlist, err := e.database.GetPlaylist(e.currentPlaylistID)
+	if err != nil || playlist == nil {
+		return
+	}
+	if playlist.PlaybackMode != "" {
+		e.playbackMode = playlist.PlaybackMode
+	}
+	if playlist.Kind != "" {
+		e.playlistKind = playlist.Kind
+	}
+	e.playlistRules = playlist.Rules
+	if playlist.ArtistSeparation > 0 {
+		e.artistSeparation = playlist.ArtistSeparation
+	}
+	if playlist.TrackRepeatHours > 0 {
+		e.trackRepeatHours = playlist.TrackRepeatHours
+	}
+}
+
 func (e *Engine) replenishPlaylist(targetCount int) {
-	if e.currentPlaylistID <= 0 {
+	if e.database == nil || e.currentPlaylistID <= 0 {
 		return
 	}
-	if len(e.activePlaylist) >= targetCount {
-		return
+	if e.playbackMode == "" {
+		e.loadPlaylistMetaLocked()
 	}
-	tracks, _ := e.database.GetPlaylistTracks(e.currentPlaylistID)
-	if len(tracks) == 0 {
-		return
-	}
-
-	var lastArtist string
-	var lastTitle string
-	if len(e.activePlaylist) > 0 {
-		lastArtist = e.activePlaylist[len(e.activePlaylist)-1].Artist
-		lastTitle = e.activePlaylist[len(e.activePlaylist)-1].Title
-	} else if e.currentTrack != nil {
-		lastArtist = e.currentTrack.Artist
-		lastTitle = e.currentTrack.Title
-	}
-
+	rules, _ := db.ParseSmartRules(e.playlistRules)
 	for len(e.activePlaylist) < targetCount {
-		shuffled := make([]db.Track, len(tracks))
-		copy(shuffled, tracks)
-		rand.Seed(time.Now().UnixNano())
-		rand.Shuffle(len(shuffled), func(i, j int) {
-			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
-		})
-		
-		for i := 0; i < len(shuffled); i++ {
-			if len(tracks) > 2 {
-				if shuffled[i].Artist == lastArtist || shuffled[i].Title == lastTitle {
-					for j := i + 1; j < len(shuffled); j++ {
-						if shuffled[j].Artist != lastArtist && shuffled[j].Title != lastTitle {
-							shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
-							break
-						}
-					}
-				}
-			}
-			t := shuffled[i]
-			e.activePlaylist = append(e.activePlaylist, t)
-			lastArtist = t.Artist
-			lastTitle = t.Title
-			
-			if len(e.activePlaylist) >= targetCount {
-				break
+		query := db.PickQuery{
+			PlaylistID:      e.currentPlaylistID,
+			Kind:            e.playlistKind,
+			Mode:            e.playbackMode,
+			Rules:           rules,
+			AfterPosition:   e.lastPosition,
+			ExcludeTrackIDs: queuedIDs(e.currentTrack, e.activePlaylist),
+		}
+		if e.playbackMode == "weighted" {
+			query.ExcludeArtists = recentArtists(e.currentTrack, e.activePlaylist, e.artistSeparation)
+			since := time.Now().Add(-time.Duration(e.trackRepeatHours) * time.Hour)
+			query.RepeatSince = &since
+		} else if e.playbackMode != "order" {
+			if artist := lastQueuedArtist(e.currentTrack, e.activePlaylist); artist != "" {
+				query.ExcludeArtists = []string{artist}
 			}
 		}
+		track, pos, err := e.database.PickTrack(query)
+		if err != nil || track == nil {
+			if len(query.ExcludeTrackIDs) == 0 {
+				return
+			}
+			query.ExcludeTrackIDs = nil
+			track, pos, err = e.database.PickTrack(query)
+			if err != nil || track == nil {
+				return
+			}
+		}
+		e.activePlaylist = append(e.activePlaylist, *track)
+		if e.playbackMode == "order" {
+			e.lastPosition = pos
+		}
 	}
+}
+
+func queuedIDs(current *db.Track, buf []db.Track) []int {
+	ids := make([]int, 0, len(buf)+1)
+	if current != nil {
+		ids = append(ids, current.ID)
+	}
+	for _, track := range buf {
+		ids = append(ids, track.ID)
+	}
+	return ids
+}
+
+func lastQueuedArtist(current *db.Track, buf []db.Track) string {
+	if len(buf) > 0 && buf[len(buf)-1].Artist != "" {
+		return buf[len(buf)-1].Artist
+	}
+	if current != nil {
+		return current.Artist
+	}
+	return ""
+}
+
+func recentArtists(current *db.Track, buf []db.Track, n int) []string {
+	if n <= 0 {
+		n = 5
+	}
+	seen := []string{}
+	push := func(artist string) {
+		if artist == "" {
+			return
+		}
+		seen = append(seen, artist)
+	}
+	if current != nil {
+		push(current.Artist)
+	}
+	for _, track := range buf {
+		push(track.Artist)
+	}
+	if len(seen) > n {
+		seen = seen[len(seen)-n:]
+	}
+	unique := make([]string, 0, len(seen))
+	used := map[string]struct{}{}
+	for _, artist := range seen {
+		if _, ok := used[artist]; ok {
+			continue
+		}
+		used[artist] = struct{}{}
+		unique = append(unique, artist)
+	}
+	return unique
 }
 
 func (e *Engine) updateIcecastMetadata(artist, title string) {
@@ -235,12 +345,12 @@ func (e *Engine) updateIcecastMetadata(artist, title string) {
 	if artist != "" {
 		display = artist + " - " + title
 	}
-	
+
 	protocol := e.cfg.Icecast.Protocol
 	if protocol == "" {
 		protocol = "http"
 	}
-	
+
 	apiURL := fmt.Sprintf("%s://%s:%d/admin/metadata?mount=%s&mode=updinfo&song=%s",
 		protocol,
 		e.cfg.Icecast.Host,
@@ -248,7 +358,7 @@ func (e *Engine) updateIcecastMetadata(artist, title string) {
 		e.cfg.Icecast.Mount,
 		url.QueryEscape(display),
 	)
-	
+
 	req, _ := http.NewRequest("GET", apiURL, nil)
 	req.SetBasicAuth("admin", e.cfg.Icecast.AdminPassword)
 	resp, err := http.DefaultClient.Do(req)
@@ -305,11 +415,11 @@ func (e *Engine) run() {
 		// Consumer: Reads from frameBuffer and writes to Icecast
 		go func() {
 			defer conn.Close()
-			
+
 			streamStartTime := time.Now()
 			var streamBytesWritten int64
 			bytesPerSec := float64(e.cfg.Icecast.Bitrate * 1000 / 8)
-			
+
 			for {
 				select {
 				case <-streamCtx.Done():
@@ -318,7 +428,7 @@ func (e *Engine) run() {
 					if !ok {
 						return // Channel closed
 					}
-					
+
 					written := 0
 					for written < len(frameData) {
 						n, err := conn.Write(frameData[written:])
@@ -334,7 +444,7 @@ func (e *Engine) run() {
 					expectedDuration := time.Duration(float64(streamBytesWritten) / bytesPerSec * float64(time.Second))
 					elapsed := time.Since(streamStartTime)
 
-					// If we starved and fell significantly behind realtime, reset the clock 
+					// If we starved and fell significantly behind realtime, reset the clock
 					// so we don't aggressively burst frames to Icecast to catch up
 					if elapsed > expectedDuration+time.Second {
 						streamStartTime = time.Now()
@@ -344,7 +454,7 @@ func (e *Engine) run() {
 					}
 
 					bufferDuration := time.Duration(e.cfg.Stream.BufferSeconds) * time.Second
-					if expectedDuration > elapsed + bufferDuration {
+					if expectedDuration > elapsed+bufferDuration {
 						time.Sleep(expectedDuration - (elapsed + bufferDuration))
 					}
 				}
@@ -354,10 +464,10 @@ func (e *Engine) run() {
 		// Producer: Reads from S3 and writes to frameBuffer
 		go func() {
 			defer close(frameBuffer)
-			
+
 			var currentS3Stream io.ReadCloser
 			var s3Reader *bufio.Reader
-			
+
 			for {
 				select {
 				case <-streamCtx.Done():
@@ -431,7 +541,7 @@ func (e *Engine) run() {
 					} else {
 						var t db.Track
 						var isRequest bool
-						
+
 						e.mu.Lock()
 						if len(e.requestedTracks) > 0 {
 							t = e.requestedTracks[0]
@@ -468,7 +578,7 @@ func (e *Engine) run() {
 						e.currentJingle = nil
 						e.database.IncrementPlayCount(dbTrackID)
 						e.database.RecordPlay(dbTrackID, false)
-						
+
 						if isRequest {
 							log.Printf("Playing requested track: %s - %s", artist, title)
 						} else {
@@ -503,12 +613,12 @@ func (e *Engine) run() {
 
 					go func(pCount int, reqTracks []db.Track, nTrackKey string) {
 						var nKey string
-						
+
 						willPlayJingle := false
 						if e.cfg.Stream.JingleInterval > 0 && pCount >= e.cfg.Stream.JingleInterval && len(e.jingles) > 0 {
 							willPlayJingle = true
 						}
-						
+
 						if willPlayJingle {
 							j := e.jingles[rand.Intn(len(e.jingles))]
 							nKey = j.S3Key
@@ -519,14 +629,14 @@ func (e *Engine) run() {
 						} else {
 							return
 						}
-						
+
 						stream, err := e.storage.GetStream(nKey)
 						if err == nil {
 							nextS3Stream = stream
 						}
 					}(e.playCount, reqTracksCopy, nextTrackKey)
 
-					frameLoop:
+				frameLoop:
 					for {
 						select {
 						case <-streamCtx.Done():

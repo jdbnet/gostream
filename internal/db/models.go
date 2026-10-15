@@ -2,18 +2,47 @@ package db
 
 import (
 	"time"
+
+	"github.com/jmoiron/sqlx"
 )
 
+const insertTrackSQL = `INSERT INTO tracks (
+	title, artist, album, album_artist, genre, year, track_number, disc_number,
+	duration_seconds, bitrate, sample_rate, file_size_bytes, file_mtime,
+	s3_key, artwork_s3_key, date_added
+) VALUES (
+	:title, :artist, :album, :album_artist, :genre, :year, :track_number, :disc_number,
+	:duration_seconds, :bitrate, :sample_rate, :file_size_bytes, :file_mtime,
+	:s3_key, :artwork_s3_key, :date_added
+)`
+
+const updateTrackSQL = `UPDATE tracks SET
+	title=:title, artist=:artist, album=:album, album_artist=:album_artist, genre=:genre,
+	year=:year, track_number=:track_number, disc_number=:disc_number,
+	duration_seconds=:duration_seconds, bitrate=:bitrate, sample_rate=:sample_rate,
+	file_size_bytes=:file_size_bytes, file_mtime=:file_mtime, artwork_s3_key=:artwork_s3_key
+	WHERE id=:id`
+
 type Track struct {
-	ID              int       `db:"id" json:"id"`
-	Title           string    `db:"title" json:"title"`
-	Artist          string    `db:"artist" json:"artist"`
-	DurationSeconds int       `db:"duration_seconds" json:"duration_seconds"`
-	FileSizeBytes   int64     `db:"file_size_bytes" json:"file_size_bytes"`
-	S3Key           string    `db:"s3_key" json:"s3_key"`
-	ArtworkS3Key    string    `db:"artwork_s3_key" json:"artwork_s3_key"`
-	UploadedAt      time.Time `db:"uploaded_at" json:"uploaded_at"`
-	PlayCount       int       `db:"play_count" json:"play_count"`
+	ID              int        `db:"id" json:"id"`
+	Title           string     `db:"title" json:"title"`
+	Artist          string     `db:"artist" json:"artist"`
+	Album           string     `db:"album" json:"album"`
+	AlbumArtist     string     `db:"album_artist" json:"album_artist"`
+	Genre           string     `db:"genre" json:"genre"`
+	Year            int        `db:"year" json:"year"`
+	TrackNumber     int        `db:"track_number" json:"track_number"`
+	DiscNumber      int        `db:"disc_number" json:"disc_number"`
+	DurationSeconds int        `db:"duration_seconds" json:"duration_seconds"`
+	Bitrate         int        `db:"bitrate" json:"bitrate"`
+	SampleRate      int        `db:"sample_rate" json:"sample_rate"`
+	FileSizeBytes   int64      `db:"file_size_bytes" json:"file_size_bytes"`
+	FileMtime       *time.Time `db:"file_mtime" json:"file_mtime"`
+	S3Key           string     `db:"s3_key" json:"s3_key"`
+	ArtworkS3Key    string     `db:"artwork_s3_key" json:"artwork_s3_key"`
+	UploadedAt      time.Time  `db:"uploaded_at" json:"uploaded_at"`
+	DateAdded       time.Time  `db:"date_added" json:"date_added"`
+	PlayCount       int        `db:"play_count" json:"play_count"`
 }
 
 type Jingle struct {
@@ -24,14 +53,22 @@ type Jingle struct {
 }
 
 type Playlist struct {
-	ID        int       `db:"id" json:"id"`
-	Name      string    `db:"name" json:"name"`
-	IsActive  bool      `db:"is_active" json:"is_active"`
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	ID               int       `db:"id" json:"id"`
+	Name             string    `db:"name" json:"name"`
+	IsActive         bool      `db:"is_active" json:"is_active"`
+	CreatedAt        time.Time `db:"created_at" json:"created_at"`
+	Kind             string    `db:"kind" json:"kind"`
+	Rules            string    `db:"rules" json:"rules"`
+	PlaybackMode     string    `db:"playback_mode" json:"playback_mode"`
+	ArtistSeparation int       `db:"artist_separation" json:"artist_separation"`
+	TrackRepeatHours int       `db:"track_repeat_hours" json:"track_repeat_hours"`
 }
 
 func (db *DB) InsertTrack(t *Track) error {
-	res, err := db.NamedExec(`INSERT INTO tracks (title, artist, duration_seconds, file_size_bytes, s3_key, artwork_s3_key) VALUES (:title, :artist, :duration_seconds, :file_size_bytes, :s3_key, :artwork_s3_key)`, t)
+	if t.DateAdded.IsZero() {
+		t.DateAdded = time.Now()
+	}
+	res, err := db.NamedExec(insertTrackSQL, t)
 	if err != nil {
 		return err
 	}
@@ -42,32 +79,45 @@ func (db *DB) InsertTrack(t *Track) error {
 	return err
 }
 
-func (db *DB) GetTracks(searchQuery string, offset, limit int) ([]Track, int, error) {
-	tracks := []Track{}
-	var total int
-	
-	query := "SELECT * FROM tracks"
-	countQuery := "SELECT COUNT(*) FROM tracks"
-	args := []interface{}{}
-	
-	if searchQuery != "" {
-		searchLike := "%" + searchQuery + "%"
-		whereClause := " WHERE title LIKE ? OR artist LIKE ?"
-		query += whereClause
-		countQuery += whereClause
-		args = append(args, searchLike, searchLike)
+func (db *DB) ApplyTrackBatch(inserts, updates []*Track) error {
+	if len(inserts) == 0 && len(updates) == 0 {
+		return nil
 	}
-	
-	query += " ORDER BY uploaded_at DESC LIMIT ? OFFSET ?"
-	
-	err := db.Get(&total, countQuery, args...)
+	tx, err := db.Beginx()
 	if err != nil {
-		return nil, 0, err
+		return err
 	}
-	
-	args = append(args, limit, offset)
-	err = db.Select(&tracks, query, args...)
-	return tracks, total, err
+	defer tx.Rollback()
+	for _, t := range inserts {
+		if t.DateAdded.IsZero() {
+			t.DateAdded = time.Now()
+		}
+		res, err := tx.NamedExec(insertTrackSQL, t)
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		t.ID = int(id)
+	}
+	for _, t := range updates {
+		if _, err := tx.NamedExec(updateTrackSQL, t); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (db *DB) GetTracks(searchQuery string, offset, limit int) ([]Track, int, error) {
+	return db.QueryTracks(TrackFilter{
+		Query:  searchQuery,
+		Sort:   "date_added",
+		Desc:   true,
+		Limit:  limit,
+		Offset: offset,
+	})
 }
 
 func (db *DB) GetAllTracks() ([]Track, error) {
@@ -117,8 +167,41 @@ func (db *DB) StorageKeyExists(key string) (bool, error) {
 }
 
 func (db *DB) DeleteTrack(id int) error {
-	_, err := db.Exec("DELETE FROM tracks WHERE id = ?", id)
-	return err
+	return db.DeleteTracks([]int{id})
+}
+
+func (db *DB) DeleteTracks(ids []int) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for start := 0; start < len(ids); start += 500 {
+		end := start + 500
+		if end > len(ids) {
+			end = len(ids)
+		}
+		chunk := ids[start:end]
+		playlistQuery, playlistArgs, err := sqlx.In(`DELETE FROM playlist_tracks WHERE track_id IN (?)`, chunk)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(playlistQuery, playlistArgs...); err != nil {
+			return err
+		}
+		trackQuery, trackArgs, err := sqlx.In(`DELETE FROM tracks WHERE id IN (?)`, chunk)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(trackQuery, trackArgs...); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (db *DB) UpdateTrack(id int, title, artist string) error {
@@ -172,7 +255,7 @@ func (db *DB) GetPlaylists() ([]Playlist, error) {
 }
 
 func (db *DB) CreatePlaylist(name string) (*Playlist, error) {
-	res, err := db.Exec("INSERT INTO playlists (name) VALUES (?)", name)
+	res, err := db.Exec("INSERT INTO playlists (name, kind, rules, playback_mode, artist_separation, track_repeat_hours) VALUES (?, 'manual', '', 'shuffle', 5, 4)", name)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +263,13 @@ func (db *DB) CreatePlaylist(name string) (*Playlist, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Playlist{ID: int(id), Name: name}, nil
+	return db.GetPlaylist(int(id))
+}
+
+func (db *DB) GetPlaylist(id int) (*Playlist, error) {
+	var p Playlist
+	err := db.Get(&p, "SELECT * FROM playlists WHERE id = ?", id)
+	return &p, err
 }
 
 func (db *DB) DeletePlaylist(id int) error {

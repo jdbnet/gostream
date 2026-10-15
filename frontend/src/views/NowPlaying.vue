@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { SkipForward, Activity, Music, Play, Square } from '@lucide/vue'
+import { SkipForward, Activity, Music, Play, Square, ListPlus } from '@lucide/vue'
+import { toast } from 'vue-sonner'
+import AddToPlaylistDialog from '../components/AddToPlaylistDialog.vue'
 
 const status = ref({
   is_connected: false,
   is_reconnecting: false,
   current_track: null as any,
   current_jingle: null as any,
-  upcoming_tracks: [] as any[]
+  upcoming_tracks: [] as any[],
+  up_next: [] as any[]
 })
 
 const history = ref<any[]>([])
+const playlistOpen = ref(false)
 let pollInterval: any = null
 
 const isPlaying = ref(false)
@@ -55,6 +59,7 @@ const fetchHistory = async () => {
 
 const skipTrack = async () => {
   await fetch('/api/stream/skip', { method: 'POST' })
+  toast.success('Skipped')
   setTimeout(() => {
     fetchStatus()
     fetchHistory()
@@ -146,19 +151,28 @@ onUnmounted(() => {
               <SkipForward class="w-5 h-5" />
               <span class="font-medium">Skip Track</span>
             </button>
+            <button
+              v-if="status.current_track"
+              type="button"
+              class="flex items-center justify-center space-x-2 rounded-xl border border-white/10 bg-white/5 px-6 py-3 text-white transition-all hover:border-accent/50 hover:bg-white/10"
+              @click="playlistOpen = true"
+            >
+              <ListPlus class="w-5 h-5" />
+              <span class="font-medium">Add to playlist</span>
+            </button>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Upcoming Tracks -->
-    <div v-if="status.upcoming_tracks && status.upcoming_tracks.length > 0" class="space-y-4">
+    <div v-if="(status.up_next || status.upcoming_tracks || []).length > 0" class="space-y-4">
       <h3 class="text-xl font-bold flex items-center">
-        Upcoming Next
+        Up next
       </h3>
       <div class="bg-surface rounded-xl border border-border overflow-hidden p-2">
         <div 
-          v-for="(track, index) in status.upcoming_tracks" 
+          v-for="(track, index) in (status.up_next || status.upcoming_tracks)" 
           :key="index"
           class="flex items-center space-x-4 p-3 rounded-lg bg-white/[0.01] hover:bg-white/[0.03] transition-colors mb-2 last:mb-0"
         >
@@ -216,5 +230,11 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+    <AddToPlaylistDialog
+      v-model:open="playlistOpen"
+      :track-ids="status.current_track ? [status.current_track.id] : []"
+      :filter="null"
+      :count="1"
+    />
   </div>
 </template>

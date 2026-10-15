@@ -51,23 +51,10 @@ func main() {
 		log.Printf("Warning: Stream engine disabled until database and storage are configured.")
 	}
 
-	if database != nil && store != nil && cfg.Storage.Type == "local" && cfg.Storage.AutoScanOnStartup {
-		go func() {
-			result, err := storage.ScanLibrary(database, store)
-			if err != nil {
-				log.Printf("Startup library scan failed: %v", err)
-				return
-			}
-			if result.Imported > 0 || len(result.Errors) > 0 {
-				log.Printf("Startup library scan: imported %d, skipped %d, errors %d", result.Imported, result.Skipped, len(result.Errors))
-				for _, scanErr := range result.Errors {
-					log.Printf("Scan error: %s", scanErr)
-				}
-			}
-		}()
-	}
-
 	server := api.NewServer(cfg, database, store, engine, frontendFS)
+	if database != nil && store != nil && cfg.Storage.Type == "local" && cfg.Storage.AutoScanOnStartup {
+		server.StartLibraryScan()
+	}
 
 	go func() {
 		if err := server.Start(); err != nil {

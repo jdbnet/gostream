@@ -10,9 +10,28 @@ const router = createRouter({
       component: NowPlaying
     },
     {
+      path: '/library',
+      name: 'Library',
+      component: () => import('../views/Library.vue')
+    },
+    {
+      path: '/library/artists',
+      name: 'Artists',
+      component: () => import('../views/Library.vue')
+    },
+    {
+      path: '/library/albums',
+      name: 'Albums',
+      component: () => import('../views/Library.vue')
+    },
+    {
+      path: '/library/genres',
+      name: 'Genres',
+      component: () => import('../views/Library.vue')
+    },
+    {
       path: '/tracks',
-      name: 'Tracks',
-      component: () => import('../views/Tracks.vue')
+      redirect: '/library'
     },
     {
       path: '/jingles',

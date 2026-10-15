@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jmoiron/sqlx"
 	_ "github.com/go-sql-driver/mysql"
-	_ "modernc.org/sqlite"
+	"github.com/jmoiron/sqlx"
 	"gostream/internal/config"
+	_ "modernc.org/sqlite"
 )
 
 type DB struct {
@@ -44,14 +44,14 @@ func connectSQLite(cfg *config.Config) (*DB, error) {
 		return nil, err
 	}
 
-	_, err = db.Exec(sqliteSchema)
-	if err != nil {
+	database := &DB{DB: db, driver: "sqlite"}
+	if _, err = db.Exec(sqliteSchema); err != nil {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
-
-	migrateArtworkColumn(db)
-
-	return &DB{DB: db, driver: "sqlite"}, nil
+	if err = database.migrate(); err != nil {
+		return nil, fmt.Errorf("failed to migrate schema: %w", err)
+	}
+	return database, nil
 }
 
 func connectMariaDB(cfg *config.Config) (*DB, error) {
@@ -86,18 +86,14 @@ func connectMariaDB(cfg *config.Config) (*DB, error) {
 		return nil, err
 	}
 
-	_, err = db.Exec(mysqlSchema)
-	if err != nil {
+	database := &DB{DB: db, driver: "mysql"}
+	if _, err = db.Exec(mysqlSchema); err != nil {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
-
-	migrateArtworkColumn(db)
-
-	return &DB{DB: db, driver: "mysql"}, nil
-}
-
-func migrateArtworkColumn(db *sqlx.DB) {
-	_, _ = db.Exec("ALTER TABLE tracks ADD COLUMN artwork_s3_key VARCHAR(512) DEFAULT ''")
+	if err = database.migrate(); err != nil {
+		return nil, fmt.Errorf("failed to migrate schema: %w", err)
+	}
+	return database, nil
 }
 
 func (db *DB) Driver() string {

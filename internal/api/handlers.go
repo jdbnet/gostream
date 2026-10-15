@@ -109,6 +109,9 @@ func (s *Server) handleDeleteTrack(c *gin.Context) {
 	if err == nil {
 		_ = s.store.Delete(t.S3Key)
 		_ = s.database.DeleteTrack(id)
+		if s.engine != nil {
+			s.engine.ForgetTracks([]int{id})
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
@@ -193,12 +196,27 @@ func (s *Server) handleGetPlaylists(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, playlists)
+	type playlistResponse struct {
+		db.Playlist
+		TrackCount    int `json:"track_count"`
+		TotalDuration int `json:"total_duration"`
+	}
+	out := make([]playlistResponse, 0, len(playlists))
+	for _, playlist := range playlists {
+		count, duration, _ := s.database.PlaylistTotals(&playlist)
+		out = append(out, playlistResponse{Playlist: playlist, TrackCount: count, TotalDuration: duration})
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 func (s *Server) handleCreatePlaylist(c *gin.Context) {
 	var req struct {
-		Name string `json:"name"`
+		Name             string `json:"name"`
+		Kind             string `json:"kind"`
+		Rules            string `json:"rules"`
+		PlaybackMode     string `json:"playback_mode"`
+		ArtistSeparation int    `json:"artist_separation"`
+		TrackRepeatHours int    `json:"track_repeat_hours"`
 	}
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -210,13 +228,40 @@ func (s *Server) handleCreatePlaylist(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if req.Kind != "" || req.Rules != "" || req.PlaybackMode != "" || req.ArtistSeparation > 0 || req.TrackRepeatHours > 0 {
+		if req.Kind != "" {
+			p.Kind = req.Kind
+		}
+		if req.Rules != "" {
+			p.Rules = req.Rules
+		}
+		if req.PlaybackMode != "" {
+			p.PlaybackMode = req.PlaybackMode
+		}
+		if req.ArtistSeparation > 0 {
+			p.ArtistSeparation = req.ArtistSeparation
+		}
+		if req.TrackRepeatHours > 0 {
+			p.TrackRepeatHours = req.TrackRepeatHours
+		}
+		if err := s.database.SavePlaylist(p); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
 	c.JSON(http.StatusOK, p)
 }
 
 func (s *Server) handleUpdatePlaylist(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
 	var req struct {
-		IsActive *bool `json:"is_active"`
+		IsActive         *bool   `json:"is_active"`
+		Name             *string `json:"name"`
+		Kind             *string `json:"kind"`
+		Rules            *string `json:"rules"`
+		PlaybackMode     *string `json:"playback_mode"`
+		ArtistSeparation *int    `json:"artist_separation"`
+		TrackRepeatHours *int    `json:"track_repeat_hours"`
 	}
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -231,6 +276,36 @@ func (s *Server) handleUpdatePlaylist(c *gin.Context) {
 		}
 		s.engine.Reload()
 	}
+	if req.Name != nil || req.Kind != nil || req.Rules != nil || req.PlaybackMode != nil || req.ArtistSeparation != nil || req.TrackRepeatHours != nil {
+		playlist, err := s.database.GetPlaylist(id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "playlist not found"})
+			return
+		}
+		if req.Name != nil {
+			playlist.Name = *req.Name
+		}
+		if req.Kind != nil {
+			playlist.Kind = *req.Kind
+		}
+		if req.Rules != nil {
+			playlist.Rules = *req.Rules
+		}
+		if req.PlaybackMode != nil {
+			playlist.PlaybackMode = *req.PlaybackMode
+		}
+		if req.ArtistSeparation != nil {
+			playlist.ArtistSeparation = *req.ArtistSeparation
+		}
+		if req.TrackRepeatHours != nil {
+			playlist.TrackRepeatHours = *req.TrackRepeatHours
+		}
+		if err := s.database.SavePlaylist(playlist); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		s.engine.Reload()
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
@@ -242,12 +317,25 @@ func (s *Server) handleDeletePlaylist(c *gin.Context) {
 
 func (s *Server) handleGetPlaylistTracks(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
-	tracks, err := s.database.GetPlaylistTracks(id)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "200"))
+	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	page, err := s.database.ListPlaylistPage(id, c.Query("q"), offset, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, tracks)
+	c.JSON(http.StatusOK, gin.H{
+		"tracks":         page.Tracks,
+		"total":          page.Total,
+		"total_duration": page.TotalDuration,
+		"artwork":        page.Artwork,
+	})
 }
 
 func (s *Server) handleAddPlaylistTrack(c *gin.Context) {
@@ -409,15 +497,6 @@ func (s *Server) handleSaveConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "saved and applied successfully"})
-}
-
-func (s *Server) handleStorageScan(c *gin.Context) {
-	result, err := storage.ScanLibrary(s.database, s.store)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, result)
 }
 
 func (s *Server) handleRequestTrack(c *gin.Context) {

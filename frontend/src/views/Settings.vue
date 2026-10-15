@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { Save, AlertCircle, CheckCircle2, FolderSearch } from '@lucide/vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { Save, AlertCircle, CheckCircle2, FolderSearch, RefreshCw } from '@lucide/vue'
+import { toast } from 'vue-sonner'
+import { scanStatus, startRefresh, startScan } from '../lib/api'
+import type { ScanProgress } from '../types'
 
 const config = ref<any>(null)
 const saved = ref(false)
 const error = ref('')
-const scanResult = ref<any>(null)
+const scanResult = ref<ScanProgress | null>(null)
 const scanning = ref(false)
+let pollTimer: ReturnType<typeof setTimeout> | null = null
 
 const fetchConfig = async () => {
   const res = await fetch('/api/config')
@@ -26,29 +30,54 @@ const saveConfig = async () => {
 
     saved.value = true
     error.value = ''
+    toast.success('Settings saved')
     setTimeout(() => saved.value = false, 3000)
   } catch (e: any) {
     error.value = e.message
   }
 }
 
+const pollScan = async () => {
+  const data = await scanStatus()
+  scanResult.value = data
+  scanning.value = data.running
+  if (data.running) {
+    pollTimer = setTimeout(pollScan, 1000)
+  }
+}
+
 const scanLibrary = async () => {
   scanning.value = true
-  scanResult.value = null
   error.value = ''
   try {
-    const res = await fetch('/api/storage/scan', { method: 'POST' })
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Scan failed')
-    scanResult.value = data
+    scanResult.value = await startScan()
+    await pollScan()
   } catch (e: any) {
     error.value = e.message
-  } finally {
     scanning.value = false
   }
 }
 
-onMounted(fetchConfig)
+const refreshMetadata = async () => {
+  scanning.value = true
+  error.value = ''
+  try {
+    scanResult.value = await startRefresh()
+    await pollScan()
+  } catch (e: any) {
+    error.value = e.message
+    scanning.value = false
+  }
+}
+
+onMounted(async () => {
+  await fetchConfig()
+  pollScan()
+})
+
+onUnmounted(() => {
+  if (pollTimer) clearTimeout(pollTimer)
+})
 </script>
 
 <template>
@@ -171,6 +200,14 @@ onMounted(fetchConfig)
               <input v-model="config.storage.auto_scan_on_startup" type="checkbox" id="autoScan" class="mr-2 accent-accent" />
               <label for="autoScan" class="text-sm text-textSecondary">Auto-scan library on startup</label>
             </div>
+            <div class="space-y-2 flex items-center">
+              <input v-model="config.storage.transcode_readonly_cache" type="checkbox" id="transcodeCache" class="mr-2 accent-accent" />
+              <label for="transcodeCache" class="text-sm text-textSecondary">Transcode read-only tracks that do not match the stream bitrate</label>
+            </div>
+            <div v-if="config.storage.transcode_readonly_cache" class="space-y-2">
+              <label class="text-sm text-textSecondary">Transcode cache path</label>
+              <input v-model="config.storage.transcode_cache_path" type="text" placeholder="Default: data directory / media / cache" class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50" />
+            </div>
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
               <button
                 @click="scanLibrary"
@@ -178,10 +215,19 @@ onMounted(fetchConfig)
                 class="flex items-center justify-center space-x-2 rounded-xl border border-border px-5 py-2.5 text-white transition-colors hover:bg-surface disabled:opacity-50"
               >
                 <FolderSearch class="w-5 h-5" />
-                <span>{{ scanning ? 'Scanning...' : 'Scan Library' }}</span>
+                <span>{{ scanning ? 'Working...' : 'Scan Library' }}</span>
+              </button>
+              <button
+                @click="refreshMetadata"
+                :disabled="scanning"
+                class="flex items-center justify-center space-x-2 rounded-xl border border-border px-5 py-2.5 text-white transition-colors hover:bg-surface disabled:opacity-50"
+              >
+                <RefreshCw class="w-5 h-5" />
+                <span>Refresh metadata</span>
               </button>
               <p v-if="scanResult" class="text-sm text-textSecondary">
-                Imported {{ scanResult.imported }}, skipped {{ scanResult.skipped }}
+                {{ scanResult.phase }} · imported {{ scanResult.imported || 0 }}, updated {{ scanResult.updated || 0 }}, removed {{ scanResult.removed || 0 }}, skipped {{ scanResult.skipped || 0 }}
+                <span v-if="scanResult.total"> · {{ scanResult.seen }}/{{ scanResult.total }}</span>
                 <span v-if="scanResult.errors?.length">, {{ scanResult.errors.length }} errors</span>
               </p>
             </div>
@@ -249,8 +295,12 @@ onMounted(fetchConfig)
           </div>
 
           <div class="space-y-2">
-            <label class="text-sm text-textSecondary">Target Bitrate (kbps) - Note: Must match ffmpeg target</label>
+            <label class="text-sm text-textSecondary">Target Bitrate (kbps)</label>
             <input v-model.number="config.icecast.bitrate" type="number" class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50" />
+          </div>
+          <div class="space-y-2">
+            <label class="text-sm text-textSecondary">Sample rate (Hz)</label>
+            <input v-model.number="config.icecast.sample_rate" type="number" class="w-full bg-surface border border-border rounded-lg px-4 py-2 text-white outline-none focus:border-accent/50" />
           </div>
         </div>
       </section>

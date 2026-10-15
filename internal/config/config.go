@@ -26,13 +26,15 @@ type Config struct {
 	} `yaml:"database" json:"database"`
 
 	Storage struct {
-		Type              string `yaml:"type" json:"type"`
-		LocalPath         string `yaml:"local_path" json:"local_path"`
-		TracksPath        string `yaml:"tracks_path" json:"tracks_path"`
-		JinglesPath       string `yaml:"jingles_path" json:"jingles_path"`
-		ArtworkPath       string `yaml:"artwork_path" json:"artwork_path"`
-		AutoScanOnStartup bool   `yaml:"auto_scan_on_startup" json:"auto_scan_on_startup"`
-		S3                struct {
+		Type                   string `yaml:"type" json:"type"`
+		LocalPath              string `yaml:"local_path" json:"local_path"`
+		TracksPath             string `yaml:"tracks_path" json:"tracks_path"`
+		JinglesPath            string `yaml:"jingles_path" json:"jingles_path"`
+		ArtworkPath            string `yaml:"artwork_path" json:"artwork_path"`
+		AutoScanOnStartup      bool   `yaml:"auto_scan_on_startup" json:"auto_scan_on_startup"`
+		TranscodeReadonlyCache bool   `yaml:"transcode_readonly_cache" json:"transcode_readonly_cache"`
+		TranscodeCachePath     string `yaml:"transcode_cache_path" json:"transcode_cache_path"`
+		S3                     struct {
 			Endpoint  string `yaml:"endpoint" json:"endpoint"`
 			Bucket    string `yaml:"bucket" json:"bucket"`
 			Region    string `yaml:"region" json:"region"`
@@ -93,6 +95,7 @@ func DefaultConfig() *Config {
 
 	cfg.Storage.Type = "local"
 	cfg.Storage.AutoScanOnStartup = true
+	cfg.Storage.TranscodeReadonlyCache = false
 	cfg.Storage.S3.Endpoint = ""
 	cfg.Storage.S3.Bucket = ""
 	cfg.Storage.S3.Region = ""
@@ -164,6 +167,17 @@ func (cfg *Config) Normalize() {
 	if cfg.Server.Timezone == "" {
 		cfg.Server.Timezone = "Europe/London"
 	}
+}
+
+func (cfg *Config) TranscodeCacheDir() string {
+	if cfg.Storage.TranscodeCachePath != "" {
+		return cfg.Storage.TranscodeCachePath
+	}
+	dataDir, err := DefaultDataDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dataDir, "media", "cache")
 }
 
 func (cfg *Config) EffectiveTimezone() string {

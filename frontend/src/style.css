@@ -1,6 +1,16 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-background: #0c1017;
+  --color-surface: #161b22;
+  --color-border: #2a2d3a;
+  --color-accent: #1ebe8a;
+  --color-textPrimary: #ffffff;
+  --color-textSecondary: #8b8fa8;
+  --font-sans: "Space Grotesk", sans-serif;
+  --font-mono: "DM Mono", monospace;
+  --radius: 8px;
+}
 
 @layer base {
   body {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { Menu } from '@lucide/vue'
+import { Toaster } from 'vue-sonner'
 import Sidebar from './components/Sidebar.vue'
 
 const sidebarOpen = ref(false)
@@ -12,6 +13,7 @@ watch(sidebarOpen, (open) => {
 
 <template>
   <div class="flex h-screen overflow-hidden bg-background text-textPrimary">
+    <Toaster theme="dark" position="bottom-right" />
     <Transition
       enter-active-class="transition-opacity duration-300"
       leave-active-class="transition-opacity duration-300"

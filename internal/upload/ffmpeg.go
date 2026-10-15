@@ -12,36 +12,134 @@ import (
 	"strings"
 )
 
-// ExtractMetadata uses ffprobe to get ID3 tags and duration
-func ExtractMetadata(path string) (title, artist string, durationSeconds int, err error) {
+// Metadata is the tag set stored for a track.
+type Metadata struct {
+	Title           string
+	Artist          string
+	Album           string
+	AlbumArtist     string
+	Genre           string
+	Year            int
+	TrackNumber     int
+	DiscNumber      int
+	DurationSeconds int
+	Bitrate         int
+	SampleRate      int
+}
+
+type probeDocument struct {
+	Streams []struct {
+		CodecType  string `json:"codec_type"`
+		SampleRate string `json:"sample_rate"`
+		BitRate    string `json:"bit_rate"`
+	} `json:"streams"`
+	Format struct {
+		Tags     map[string]string `json:"tags"`
+		Duration string            `json:"duration"`
+		BitRate  string            `json:"bit_rate"`
+	} `json:"format"`
+}
+
+// ExtractMetadata uses ffprobe to get tags, duration, and audio format.
+func ExtractMetadata(path string) (Metadata, error) {
 	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", path)
 	out, err := cmd.Output()
 	if err != nil {
-		return "", "", 0, fmt.Errorf("ffprobe error: %w", err)
+		return Metadata{}, fmt.Errorf("ffprobe error: %w", err)
 	}
+	return ParseProbeJSON(out)
+}
 
-	var result struct {
-		Format struct {
-			Tags     map[string]string `json:"tags"`
-			Duration string            `json:"duration"`
-		} `json:"format"`
-	}
-
+// ParseProbeJSON reads an ffprobe JSON document.
+func ParseProbeJSON(out []byte) (Metadata, error) {
+	var result probeDocument
 	if err := json.Unmarshal(out, &result); err != nil {
-		return "", "", 0, fmt.Errorf("failed to parse ffprobe json: %w", err)
+		return Metadata{}, fmt.Errorf("failed to parse ffprobe json: %w", err)
 	}
-
-	for k, v := range result.Format.Tags {
-		lowerK := strings.ToLower(k)
-		if lowerK == "title" {
-			title = v
-		} else if lowerK == "artist" {
-			artist = v
+	meta := Metadata{}
+	for key, value := range result.Format.Tags {
+		applyTag(&meta, key, value)
+	}
+	if duration, err := strconv.ParseFloat(result.Format.Duration, 64); err == nil {
+		meta.DurationSeconds = int(duration)
+	}
+	streamRate := ""
+	streamBitrate := ""
+	for _, stream := range result.Streams {
+		if stream.CodecType != "audio" && stream.CodecType != "" {
+			continue
+		}
+		if stream.SampleRate != "" && meta.SampleRate == 0 {
+			if rate, err := strconv.Atoi(stream.SampleRate); err == nil {
+				meta.SampleRate = rate
+			}
+		}
+		if stream.BitRate != "" {
+			streamBitrate = stream.BitRate
+		}
+		if stream.SampleRate != "" {
+			streamRate = stream.SampleRate
+		}
+		if stream.CodecType == "audio" {
+			break
 		}
 	}
-	fDuration, _ := strconv.ParseFloat(result.Format.Duration, 64)
-	
-	return title, artist, int(fDuration), nil
+	if meta.SampleRate == 0 && streamRate != "" {
+		meta.SampleRate, _ = strconv.Atoi(streamRate)
+	}
+	meta.Bitrate = parseBitrateKbps(result.Format.BitRate, streamBitrate)
+	return meta, nil
+}
+
+func applyTag(meta *Metadata, key, value string) {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "title":
+		meta.Title = value
+	case "artist":
+		meta.Artist = value
+	case "album":
+		meta.Album = value
+	case "albumartist", "album_artist", "album artist":
+		meta.AlbumArtist = value
+	case "genre":
+		meta.Genre = value
+	case "date", "year":
+		if meta.Year == 0 {
+			meta.Year = leadingInt(value)
+		}
+	case "track", "tracknumber", "track_number":
+		meta.TrackNumber = leadingInt(value)
+	case "disc", "discnumber", "disc_number":
+		meta.DiscNumber = leadingInt(value)
+	}
+}
+
+func leadingInt(value string) int {
+	value = strings.TrimSpace(value)
+	end := 0
+	for end < len(value) && value[end] >= '0' && value[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return 0
+	}
+	n, _ := strconv.Atoi(value[:end])
+	return n
+}
+
+func parseBitrateKbps(formatBitrate, streamBitrate string) int {
+	raw := formatBitrate
+	if raw == "" {
+		raw = streamBitrate
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || n <= 0 {
+		return 0
+	}
+	if n > 10000 {
+		return n / 1000
+	}
+	return n
 }
 
 func detectTrailingSilenceStart(inputPath string) float64 {
@@ -93,14 +191,14 @@ func detectTrailingSilenceStart(inputPath string) float64 {
 // It also strips silence from the beginning and end of the track.
 func NormalizeAudio(inputPath, outputPath string) error {
 	args := []string{"-y"}
-	
+
 	trimStart := detectTrailingSilenceStart(inputPath)
 	if trimStart > 0 {
 		args = append(args, "-to", strconv.FormatFloat(trimStart, 'f', 2, 64))
 	}
-	
+
 	args = append(args, "-i", inputPath, "-af", "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-70dB", "-codec:a", "libmp3lame", "-b:a", "128k", "-ar", "44100", "-ac", "2", outputPath)
-	
+
 	cmd := exec.Command("ffmpeg", args...)
 
 	output, err := cmd.CombinedOutput()
@@ -115,6 +213,42 @@ func NormalizeAudio(inputPath, outputPath string) error {
 	}
 
 	return nil
+}
+
+// TranscodeToStream encodes a file to the station bitrate without the upload normaliser's fixed 128k settings.
+func TranscodeToStream(inputPath, outputPath string, bitrate, sampleRate int) error {
+	if bitrate <= 0 {
+		bitrate = 192
+	}
+	if sampleRate <= 0 {
+		sampleRate = 44100
+	}
+	if err := os.MkdirAll(filepathDir(outputPath), 0755); err != nil {
+		return err
+	}
+	args := []string{
+		"-y", "-i", inputPath,
+		"-codec:a", "libmp3lame",
+		"-b:a", fmt.Sprintf("%dk", bitrate),
+		"-ar", strconv.Itoa(sampleRate),
+		"-ac", "2",
+		outputPath,
+	}
+	output, err := exec.Command("ffmpeg", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ffmpeg error: %w, output: %s", err, string(output))
+	}
+	_, err = os.Stat(outputPath)
+	return err
+}
+
+func filepathDir(path string) string {
+	for i := len(path) - 1; i >= 0; i-- {
+		if path[i] == '/' || path[i] == '\\' {
+			return path[:i]
+		}
+	}
+	return "."
 }
 
 // ExtractArtwork attempts to extract embedded album artwork from an MP3 file

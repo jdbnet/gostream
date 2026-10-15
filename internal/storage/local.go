@@ -14,6 +14,7 @@ type LocalBackend struct {
 	tracksPath      string
 	jinglesPath     string
 	artworkPath     string
+	cachePath       string
 	tracksWritable  bool
 	jinglesWritable bool
 }
@@ -50,6 +51,12 @@ func NewLocal(cfg *appconfig.Config) (*LocalBackend, error) {
 	backend.tracksWritable = dirWritable(tracksPath)
 	if jinglesPath != "" {
 		backend.jinglesWritable = dirWritable(jinglesPath)
+	}
+	if cfg.Storage.TranscodeReadonlyCache {
+		backend.cachePath = cfg.TranscodeCacheDir()
+		if backend.cachePath != "" {
+			_ = os.MkdirAll(backend.cachePath, 0755)
+		}
 	}
 	return backend, nil
 }
@@ -173,12 +180,41 @@ func (l *LocalBackend) Delete(key string) error {
 }
 
 func (l *LocalBackend) GetStream(key string) (io.ReadCloser, error) {
+	if cached := l.cacheFile(key); cached != "" {
+		if file, err := os.Open(cached); err == nil {
+			return file, nil
+		}
+	}
 	fullPath, err := l.resolveKey(key)
 	if err != nil {
 		return nil, err
 	}
 
 	return os.Open(fullPath)
+}
+
+func (l *LocalBackend) cacheDestination(key string) string {
+	if l.cachePath == "" || !strings.HasPrefix(filepath.ToSlash(key), "tracks/") {
+		return ""
+	}
+	rel := strings.TrimPrefix(filepath.ToSlash(key), "tracks/")
+	full, err := safeJoin(l.cachePath, rel)
+	if err != nil {
+		return ""
+	}
+	return full
+}
+
+func (l *LocalBackend) cacheFile(key string) string {
+	full := l.cacheDestination(key)
+	if full == "" {
+		return ""
+	}
+	info, err := os.Stat(full)
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	return full
 }
 
 func (l *LocalBackend) Writable() bool {

@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import './style.css'
+import 'vue-sonner/style.css'
 import '@fontsource/space-grotesk'
 import '@fontsource/dm-mono'
 import App from './App.vue'
