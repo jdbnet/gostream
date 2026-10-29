@@ -56,6 +56,7 @@ func NewServer(cfg *config.Config, database *db.DB, store storage.Backend, engin
 		api.GET("/tracks", s.handleGetTracks)
 		api.POST("/tracks", s.handleUploadTrack)
 		api.PUT("/tracks/:id", s.handleUpdateTrack)
+		api.POST("/tracks/:id/artwork", s.handleReplaceArtwork)
 		api.DELETE("/tracks/:id", s.handleDeleteTrack)
 
 		api.GET("/library/tracks", s.handleLibraryTracks)

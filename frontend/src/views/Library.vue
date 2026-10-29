@@ -5,6 +5,7 @@ import { useVirtualizer } from '@tanstack/vue-virtual'
 import { ListPlus, Loader2, Music, Search, SlidersHorizontal } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import AddToPlaylistDialog from '../components/AddToPlaylistDialog.vue'
+import TrackEditor from '../components/TrackEditor.vue'
 import TrackUploader from '../components/TrackUploader.vue'
 import { fetchAlbums, fetchArtists, fetchGenres, fetchTracks, requestTrack } from '../lib/api'
 import { artworkUrl, formatDuration, type AlbumRow, type ArtistRow, type GenreRow, type Track, type TrackQuery } from '../types'
@@ -43,6 +44,8 @@ const allMatching = ref(false)
 const anchor = ref<number | null>(null)
 const cursor = ref(0)
 const dialogOpen = ref(false)
+const editorOpen = ref(false)
+const editing = ref<Track | null>(null)
 
 const pageSize = 100
 let offset = 0
@@ -209,6 +212,21 @@ function onRowClick(index: number, event: MouseEvent) {
   selected.value = new Set([id])
   anchor.value = index
   allMatching.value = false
+  editing.value = tracks.value[index]
+  editorOpen.value = true
+}
+
+function onTrackSaved(updated: Track) {
+  const index = tracks.value.findIndex((track) => track.id === updated.id)
+  if (index >= 0) tracks.value[index] = { ...tracks.value[index], ...updated }
+  if (editing.value?.id === updated.id) editing.value = tracks.value[index] ?? updated
+}
+
+function onTrackDeleted(id: number) {
+  tracks.value = tracks.value.filter((track) => track.id !== id)
+  total.value = Math.max(0, total.value - 1)
+  selected.value.delete(id)
+  if (editing.value?.id === id) editing.value = null
 }
 
 function rowSelected(id: number) {
@@ -442,6 +460,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
       </div>
     </div>
 
+    <TrackEditor v-model:open="editorOpen" :track="editing" @saved="onTrackSaved" @deleted="onTrackDeleted" />
     <AddToPlaylistDialog
       v-model:open="dialogOpen"
       :track-ids="Array.from(selected)"

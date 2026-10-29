@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gostream/internal/config"
@@ -86,21 +88,86 @@ func (s *Server) handleUploadTrack(c *gin.Context) {
 
 func (s *Server) handleUpdateTrack(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
+	track, err := s.database.GetTrack(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "track not found"})
+		return
+	}
 
 	var req struct {
-		Title  string `json:"title"`
-		Artist string `json:"artist"`
+		Title       string `json:"title"`
+		Artist      string `json:"artist"`
+		Album       string `json:"album"`
+		AlbumArtist string `json:"album_artist"`
+		Genre       string `json:"genre"`
+		Year        int    `json:"year"`
+		TrackNumber int    `json:"track_number"`
+		DiscNumber  int    `json:"disc_number"`
 	}
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if strings.TrimSpace(req.Title) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "title is required"})
+		return
+	}
 
-	if err := s.database.UpdateTrack(id, req.Title, req.Artist); err != nil {
+	track.Title = strings.TrimSpace(req.Title)
+	track.Artist = strings.TrimSpace(req.Artist)
+	track.Album = strings.TrimSpace(req.Album)
+	track.AlbumArtist = strings.TrimSpace(req.AlbumArtist)
+	track.Genre = strings.TrimSpace(req.Genre)
+	track.Year = req.Year
+	track.TrackNumber = req.TrackNumber
+	track.DiscNumber = req.DiscNumber
+	if err := s.database.UpdateTrackMetadata(track); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	c.JSON(http.StatusOK, track)
+}
+
+func (s *Server) handleReplaceArtwork(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	track, err := s.database.GetTrack(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "track not found"})
+		return
+	}
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file missing"})
+		return
+	}
+	defer file.Close()
+
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".webp":
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "artwork must be a jpeg, png, or webp image"})
+		return
+	}
+	if ext == ".jpeg" {
+		ext = ".jpg"
+	}
+	key := fmt.Sprintf("artworks/%d_%d%s", id, time.Now().UnixNano(), ext)
+	if err := s.store.Upload(key, file, artworkContentType(key)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	previous := track.ArtworkS3Key
+	track.ArtworkS3Key = key
+	if err := s.database.UpdateTrackMetadata(track); err != nil {
+		_ = s.store.Delete(key)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if previous != "" && previous != key {
+		_ = s.store.Delete(previous)
+	}
+	c.JSON(http.StatusOK, track)
 }
 
 func (s *Server) handleDeleteTrack(c *gin.Context) {
@@ -541,7 +608,18 @@ func (s *Server) handleGetArtwork(c *gin.Context) {
 	}
 	defer reader.Close()
 
-	c.DataFromReader(http.StatusOK, -1, "image/jpeg", reader, map[string]string{
+	c.DataFromReader(http.StatusOK, -1, artworkContentType(key), reader, map[string]string{
 		"Cache-Control": "public, max-age=31536000",
 	})
+}
+
+func artworkContentType(key string) string {
+	switch strings.ToLower(filepath.Ext(key)) {
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	default:
+		return "image/jpeg"
+	}
 }
