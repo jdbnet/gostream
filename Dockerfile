@@ -1,5 +1,5 @@
 # Build stage 1: Vite + Vue
-FROM node:20-alpine AS frontend-builder
+FROM node:26-alpine AS frontend-builder
 WORKDIR /app
 COPY frontend/package*.json ./
 RUN npm install
@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Build stage 2: Go
-FROM golang:1.27.1-alpine AS go-builder
+FROM golang:1.27.3-alpine AS go-builder
 WORKDIR /app
 # Install dependencies
 RUN apk add --no-cache gcc musl-dev
