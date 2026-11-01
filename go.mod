@@ -11,7 +11,7 @@ require (
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jmoiron/sqlx v1.4.0
 	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/sqlite v1.61.0
+	modernc.org/sqlite v1.61.1
 )
 
 require (
